@@ -1,0 +1,33 @@
+# Copy to config.yaml and mount into the container at /config/config.yaml.
+# Secrets (accessKeyId/secretAccessKey below) are expected as ${VAR} placeholders,
+# resolved from the process environment or from a .env file mounted at /config/.env.
+#
+# NOTE: DNS-change detection is driven by a local IP cache (/data/cache.json), not a
+# live DNS lookup. If a record is changed manually outside of Cuddns, Cuddns won't
+# notice until the public IP itself changes again.
+
+intervalSeconds: 300
+
+providers:
+  - type: route53
+    accessKeyId: ${AWS_ACCESS_KEY_ID}
+    secretAccessKey: ${AWS_SECRET_ACCESS_KEY}
+    region: us-east-1
+    zones:
+      - hostedZoneId: Z0123456789ABCDEFGHIJ
+        ttl: 300
+        records:
+          - example.com
+          - auth.example.com
+          - www.example.com
+          - vpn.example.com
+          - request.example.com
+          - plex.example.com
+          - listen.example.com
+          - ai.example.com
+          - ha.example.com
+      - hostedZoneId: Z9876543210JIHGFEDCBA
+        ttl: 300
+        records:
+          - photos.example.com
+          - cloud.example.com

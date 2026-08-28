@@ -1,0 +1,116 @@
+# Cuddns
+
+A small, self-hosted Dynamic DNS updater. It runs on a schedule, checks your
+public IP, and updates DNS records through a pluggable provider (Route53
+today) — only when the IP actually changed, tracked via a local cache so it
+doesn't hammer your DNS provider's API every run. Built to replace a pile of
+personal `update-r53` bash scripts with something configurable, testable,
+and easy to run in a homelab.
+
+> [!NOTE]
+> This project was vibe coded — designed and built almost entirely through
+> conversation with an AI assistant (Claude). It's been reviewed and tested,
+> but review the code yourself before trusting it with your DNS.
+
+## Features
+
+- **Scheduled updates** — configurable interval, no external cron needed.
+- **IP caching** — skips the update (and the API call) when the public IP
+  hasn't changed since last run.
+- **Plugin-style providers** — ships with AWS Route53; more can be added
+  without touching the core update loop.
+- **YAML config with secret substitution** — `${VAR_NAME}` placeholders
+  resolved from the environment or a `.env` file, so credentials never live
+  in the config file itself.
+- **Docker image** — small Alpine-based image, published to GHCR for
+  `linux/amd64` and `linux/arm64`.
+
+## Quick start
+
+1. Copy the example config and env files:
+
+   ```bash
+   cp config/config.example.yaml config/config.yaml
+   cp config/.env.example config/.env
+   ```
+
+2. Edit `config/config.yaml` and `config/.env` for your domains and
+   credentials (see below).
+
+3. Run it:
+
+   ```bash
+   docker run -d \
+     --name cuddns \
+     -v "$(pwd)/config:/config:ro" \
+     -v cuddns-data:/data \
+     ghcr.io/<owner>/cuddns:latest
+   ```
+
+   Replace `<owner>` with this repo's GitHub owner/org once it's pushed and
+   the [publish workflow](.github/workflows/docker-publish.yml) has run.
+
+   `/config` holds your `config.yaml` and `.env`; `/data` persists the IP
+   cache across restarts.
+
+## Example `config.yaml`
+
+```yaml
+intervalSeconds: 300
+
+providers:
+  - type: route53
+    accessKeyId: ${AWS_ACCESS_KEY_ID}
+    secretAccessKey: ${AWS_SECRET_ACCESS_KEY}
+    region: us-east-1
+    zones:
+      - hostedZoneId: Z0123456789ABCDEFGHIJ
+        ttl: 300
+        records:
+          - example.com
+          - www.example.com
+          - vpn.example.com
+```
+
+- `intervalSeconds` — how often to check the public IP and update records.
+- `providers[].type` — which provider implementation to use (`route53` for now).
+- `providers[].accessKeyId` / `secretAccessKey` — AWS credentials; use
+  `${VAR}` placeholders, never commit real values.
+- `zones[].hostedZoneId` — the Route53 hosted zone ID.
+- `zones[].ttl` — TTL applied to updated records.
+- `zones[].records` — the A records to keep pointed at your current public IP.
+
+## Example `.env`
+
+```dotenv
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+```
+
+Any `${VAR_NAME}` in `config.yaml` is resolved from this file first, then
+falls back to the container's real environment. Missing variables fail
+startup immediately with a clear error rather than updating DNS with a
+blank value.
+
+## Configuration paths
+
+Override these via environment variables if the defaults don't fit your setup:
+
+| Variable             | Default                | Purpose                          |
+| -------------------- | ----------------------- | --------------------------------- |
+| `CUDDNS_CONFIG_PATH` | `/config/config.yaml`  | Path to the YAML config file      |
+| `CUDDNS_ENV_PATH`    | `/config/.env`         | Path to the optional `.env` file  |
+| `CUDDNS_CACHE_PATH`  | `/data/cache.json`     | Path to the IP cache file         |
+
+## Development
+
+```bash
+dotnet build
+dotnet test
+docker build -t cuddns .
+```
+
+Versioning and image publishing are handled by
+[`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml) —
+push a `vX.Y.Z` tag to cut a release; see that file's header comment for the
+full tagging scheme.
