@@ -125,6 +125,16 @@ Override these via environment variables if the defaults don't fit your setup:
 | `CUDDNS_ENV_PATH`    | `/config/.env`         | Path to the optional `.env` file  |
 | `CUDDNS_CACHE_PATH`  | `/data/cache.json`     | Path to the IP cache file         |
 
+The container runs as a non-root user (uid/gid `1000`). If you're reusing a
+`/data` volume from before this was fixed and see `UnauthorizedAccessException`
+/ `Permission denied` writing `cache.json`, fix its ownership once:
+
+```bash
+docker run --rm -v cuddns-data:/data alpine chown -R 1000:1000 /data
+```
+
+(swap `cuddns-data` for your actual volume/mount).
+
 ## Development
 
 ```bash

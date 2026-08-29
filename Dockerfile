@@ -8,8 +8,11 @@ RUN dotnet publish src/Cuddns/Cuddns.csproj -c Release -o /app /p:Version=$VERSI
 FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine AS runtime
 ARG VERSION=0.0.0-dev
 WORKDIR /app
-RUN addgroup -S cuddns && adduser -S cuddns -G cuddns
-COPY --from=build /app .
+RUN addgroup -g 1000 -S cuddns && \
+    adduser -u 1000 -S cuddns -G cuddns && \
+    mkdir -p /data /config && \
+    chown -R cuddns:cuddns /data /config
+COPY --chown=cuddns:cuddns --from=build /app .
 VOLUME ["/config", "/data"]
 ENV CUDDNS_CONFIG_PATH=/config/config.yaml
 ENV CUDDNS_ENV_PATH=/config/.env
