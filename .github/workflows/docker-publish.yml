@@ -40,7 +40,23 @@ jobs:
 
       - run: dotnet restore
       - run: dotnet build --no-restore -c Release
-      - run: dotnet test --no-build -c Release
+      - run: dotnet test --no-build -c Release --collect:"XPlat Code Coverage" --results-directory ./coverage
+
+      # Coverage reporting is informational only (continue-on-error) so a tooling hiccup
+      # here never blocks the branch-protection-required test check above from passing.
+      - name: Generate coverage summary
+        if: always()
+        continue-on-error: true
+        uses: danielpalme/ReportGenerator-GitHub-Action@5
+        with:
+          reports: coverage/**/coverage.cobertura.xml
+          targetdir: coveragereport
+          reporttypes: MarkdownSummaryGithub
+
+      - name: Publish coverage summary
+        if: always()
+        continue-on-error: true
+        run: cat coveragereport/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
 
   prepare:
     needs: test
