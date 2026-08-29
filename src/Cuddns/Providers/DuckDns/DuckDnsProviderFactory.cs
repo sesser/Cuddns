@@ -1,6 +1,8 @@
+using Microsoft.Extensions.Logging;
+
 namespace Cuddns.Providers.DuckDns;
 
-public sealed class DuckDnsProviderFactory : IDnsProviderFactory
+public sealed class DuckDnsProviderFactory(ILogger<DuckDnsProviderFactory> logger) : IDnsProviderFactory
 {
     // Shared across every DuckDNS provider instance this process creates, per standard
     // HttpClient guidance (avoids socket exhaustion from creating one per Create() call).
@@ -12,5 +14,10 @@ public sealed class DuckDnsProviderFactory : IDnsProviderFactory
 
     public IProviderConfig CreateDefaultConfig() => new DuckDnsProviderConfig();
 
-    public IDnsProvider Create(IProviderConfig config) => new DuckDnsProvider(HttpClient, (DuckDnsProviderConfig)config);
+    public IDnsProvider Create(IProviderConfig config)
+    {
+        var duckDnsConfig = (DuckDnsProviderConfig)config;
+        logger.LogInformation("Creating duckdns provider ({RecordCount} records)", duckDnsConfig.Records.Count);
+        return new DuckDnsProvider(HttpClient, duckDnsConfig);
+    }
 }

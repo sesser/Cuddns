@@ -4,6 +4,7 @@ using Cuddns.Providers;
 using Cuddns.Providers.DuckDns;
 using Cuddns.Providers.Route53;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cuddns.Tests.Config;
 
@@ -11,7 +12,11 @@ public class ConfigLoaderTests : IDisposable
 {
     private readonly string _tempDir = Directory.CreateTempSubdirectory("cuddns-config-tests-").FullName;
     private readonly List<string> _envVarsToClear = [];
-    private readonly IDnsProviderFactory[] _catalog = [new Route53DnsProviderFactory(), new DuckDnsProviderFactory()];
+    private readonly IDnsProviderFactory[] _catalog =
+    [
+        new Route53DnsProviderFactory(NullLogger<Route53DnsProviderFactory>.Instance),
+        new DuckDnsProviderFactory(NullLogger<DuckDnsProviderFactory>.Instance),
+    ];
 
     private string ConfigPath => Path.Combine(_tempDir, "config.yaml");
     private string EnvPath => Path.Combine(_tempDir, ".env");
