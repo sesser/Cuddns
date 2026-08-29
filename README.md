@@ -53,6 +53,29 @@ and easy to run in a homelab.
    `/config` holds your `config.yaml` and `.env`; `/data` persists the IP
    cache across restarts.
 
+## Example `docker-compose.yml`
+
+Same setup as the `docker run` command above, if you'd rather manage it
+declaratively:
+
+```yaml
+services:
+  cuddns:
+    image: ghcr.io/sesser/cuddns:latest
+    container_name: cuddns
+    restart: unless-stopped
+    volumes:
+      - ./config:/config:ro
+      - cuddns-data:/data
+
+volumes:
+  cuddns-data:
+```
+
+```bash
+docker compose up -d
+```
+
 ## Example `config.yaml`
 
 ```yaml
