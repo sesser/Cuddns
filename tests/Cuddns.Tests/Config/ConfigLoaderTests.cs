@@ -1,5 +1,7 @@
 using Cuddns.Config;
 using Cuddns.Options;
+using Cuddns.Providers;
+using Cuddns.Providers.Route53;
 using FluentAssertions;
 
 namespace Cuddns.Tests.Config;
@@ -8,9 +10,12 @@ public class ConfigLoaderTests : IDisposable
 {
     private readonly string _tempDir = Directory.CreateTempSubdirectory("cuddns-config-tests-").FullName;
     private readonly List<string> _envVarsToClear = [];
+    private readonly IDnsProviderFactory[] _catalog = [new Route53DnsProviderFactory()];
 
     private string ConfigPath => Path.Combine(_tempDir, "config.yaml");
     private string EnvPath => Path.Combine(_tempDir, ".env");
+
+    private ConfigLoader CreateSut() => new(_catalog);
 
     private void SetEnvVar(string name, string value)
     {
@@ -36,11 +41,11 @@ public class ConfigLoaderTests : IDisposable
                       - www.example.com
             """);
 
-        var options = new ConfigLoader().Load(ConfigPath, envPath: null);
+        var options = CreateSut().Load(ConfigPath, envPath: null);
 
         options.IntervalSeconds.Should().Be(120);
         options.Providers.Should().ContainSingle();
-        var provider = options.Providers[0];
+        var provider = options.Providers[0].Should().BeOfType<Route53ProviderConfig>().Subject;
         provider.Type.Should().Be("route53");
         provider.AccessKeyId.Should().Be("AKIA_TEST_VALUE");
         provider.Zones.Should().ContainSingle();
@@ -55,13 +60,15 @@ public class ConfigLoaderTests : IDisposable
             intervalSeconds: 60
             providers:
               - type: route53
+                accessKeyId: unused
+                secretAccessKey: unused
                 zones:
                   - ttl: 300
                     records:
                       - a.example.com
             """);
 
-        var act = () => new ConfigLoader().Load(ConfigPath, envPath: null);
+        var act = () => CreateSut().Load(ConfigPath, envPath: null);
 
         act.Should().Throw<ConfigValidationException>()
             .WithMessage("*hostedZoneId*");
@@ -82,7 +89,7 @@ public class ConfigLoaderTests : IDisposable
                       - a.example.com
             """);
 
-        var act = () => new ConfigLoader().Load(ConfigPath, envPath: null);
+        var act = () => CreateSut().Load(ConfigPath, envPath: null);
 
         act.Should().Throw<ConfigValidationException>()
             .WithMessage("*CUDDNS_TEST_DOES_NOT_EXIST*");
@@ -96,6 +103,7 @@ public class ConfigLoaderTests : IDisposable
             intervalSeconds: 60
             providers:
               - type: route53
+                accessKeyId: unused
                 secretAccessKey: ${CUDDNS_TEST_SECRET}
                 zones:
                   - hostedZoneId: Z123
@@ -105,9 +113,26 @@ public class ConfigLoaderTests : IDisposable
             """);
         _envVarsToClear.Add("CUDDNS_TEST_SECRET");
 
-        var options = new ConfigLoader().Load(ConfigPath, EnvPath);
+        var options = CreateSut().Load(ConfigPath, EnvPath);
 
-        options.Providers[0].SecretAccessKey.Should().Be("from-dot-env-file");
+        var provider = options.Providers[0].Should().BeOfType<Route53ProviderConfig>().Subject;
+        provider.SecretAccessKey.Should().Be("from-dot-env-file");
+    }
+
+    [Fact]
+    public async Task Load_UnknownProviderType_ThrowsNamingType()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            providers:
+              - type: cloudflare
+                apiToken: unused
+            """);
+
+        var act = () => CreateSut().Load(ConfigPath, envPath: null);
+
+        act.Should().Throw<ConfigValidationException>()
+            .WithMessage("*cloudflare*");
     }
 
     public void Dispose()

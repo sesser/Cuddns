@@ -1,5 +1,4 @@
 using Cuddns.Cache;
-using Cuddns.Options;
 using Cuddns.Orchestration;
 using Cuddns.Providers;
 using Cuddns.PublicIp;
@@ -11,53 +10,31 @@ namespace Cuddns.Tests.Orchestration;
 
 public class DdnsUpdateServiceTests
 {
-    private const string ProviderType = "fake";
     private const string CurrentIp = "203.0.113.10";
 
     private readonly Mock<IPublicIpProvider> _publicIp = new();
     private readonly Mock<IIpCacheStore> _cacheStore = new();
     private readonly Mock<IDnsProvider> _dnsProvider = new();
-    private readonly Mock<IDnsProviderFactory> _dnsProviderFactory = new();
 
     public DdnsUpdateServiceTests()
     {
         _publicIp.Setup(p => p.GetCurrentIpAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(CurrentIp);
-
-        _dnsProviderFactory.Setup(f => f.ProviderType).Returns(ProviderType);
-        _dnsProviderFactory.Setup(f => f.Create(It.IsAny<ProviderOptions>()))
-            .Returns(_dnsProvider.Object);
     }
 
-    private DdnsUpdateService CreateSut()
+    private DdnsUpdateService CreateSut(params IDnsProvider[] providers)
     {
-        var factories = new Dictionary<string, IDnsProviderFactory> { [ProviderType] = _dnsProviderFactory.Object };
         return new DdnsUpdateService(
             _publicIp.Object,
             _cacheStore.Object,
-            factories,
+            providers,
             NullLogger<DdnsUpdateService>.Instance);
     }
 
-    private static CuddnsOptions BuildConfig(params (string ZoneId, string[] Records)[] zones)
+    private void SetupManagedRecords(params string[] records)
     {
-        return new CuddnsOptions
-        {
-            IntervalSeconds = 60,
-            Providers =
-            [
-                new ProviderOptions
-                {
-                    Type = ProviderType,
-                    Zones = zones.Select(z => new ZoneOptions
-                    {
-                        HostedZoneId = z.ZoneId,
-                        Ttl = 300,
-                        Records = [.. z.Records],
-                    }).ToList(),
-                },
-            ],
-        };
+        _dnsProvider.Setup(p => p.ManagedRecords)
+            .Returns(records.Select(r => new ManagedRecord(r, 300)).ToList());
     }
 
     private void SetupCache(Dictionary<string, IpCacheEntry> initial)
@@ -70,12 +47,12 @@ public class DdnsUpdateServiceTests
     public async Task FirstRun_NoCacheEntry_CallsProviderAndSavesCache()
     {
         SetupCache([]);
-        var config = BuildConfig(("Z1", ["a.example.com"]));
+        SetupManagedRecords("a.example.com");
 
-        await CreateSut().RunOnceAsync(config, CancellationToken.None);
+        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
 
         _dnsProvider.Verify(p => p.UpsertRecordAsync(
-            It.IsAny<ZoneOptions>(), "a.example.com", CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
+            It.Is<ManagedRecord>(r => r.Name == "a.example.com"), CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
 
         _cacheStore.Verify(c => c.SaveAsync(
             It.Is<IReadOnlyDictionary<string, IpCacheEntry>>(d =>
@@ -90,12 +67,12 @@ public class DdnsUpdateServiceTests
         {
             ["a.example.com"] = new IpCacheEntry(CurrentIp, DateTimeOffset.UtcNow.AddHours(-1)),
         });
-        var config = BuildConfig(("Z1", ["a.example.com"]));
+        SetupManagedRecords("a.example.com");
 
-        await CreateSut().RunOnceAsync(config, CancellationToken.None);
+        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
 
         _dnsProvider.Verify(p => p.UpsertRecordAsync(
-            It.IsAny<ZoneOptions>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<ManagedRecord>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -105,12 +82,12 @@ public class DdnsUpdateServiceTests
         {
             ["a.example.com"] = new IpCacheEntry("198.51.100.1", DateTimeOffset.UtcNow.AddHours(-1)),
         });
-        var config = BuildConfig(("Z1", ["a.example.com"]));
+        SetupManagedRecords("a.example.com");
 
-        await CreateSut().RunOnceAsync(config, CancellationToken.None);
+        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
 
         _dnsProvider.Verify(p => p.UpsertRecordAsync(
-            It.IsAny<ZoneOptions>(), "a.example.com", CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
+            It.Is<ManagedRecord>(r => r.Name == "a.example.com"), CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
 
         _cacheStore.Verify(c => c.SaveAsync(
             It.Is<IReadOnlyDictionary<string, IpCacheEntry>>(d => d["a.example.com"].Ip == CurrentIp),
@@ -121,16 +98,16 @@ public class DdnsUpdateServiceTests
     public async Task ProviderThrows_OtherRecordsStillProcessed_FailedRecordCacheNotAdvanced()
     {
         SetupCache([]);
-        var config = BuildConfig(("Z1", ["fails.example.com", "ok.example.com"]));
+        SetupManagedRecords("fails.example.com", "ok.example.com");
 
         _dnsProvider.Setup(p => p.UpsertRecordAsync(
-                It.IsAny<ZoneOptions>(), "fails.example.com", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.Is<ManagedRecord>(r => r.Name == "fails.example.com"), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("boom"));
 
-        await CreateSut().RunOnceAsync(config, CancellationToken.None);
+        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
 
         _dnsProvider.Verify(p => p.UpsertRecordAsync(
-            It.IsAny<ZoneOptions>(), "ok.example.com", CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
+            It.Is<ManagedRecord>(r => r.Name == "ok.example.com"), CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
 
         _cacheStore.Verify(c => c.SaveAsync(
             It.Is<IReadOnlyDictionary<string, IpCacheEntry>>(d =>
@@ -142,26 +119,29 @@ public class DdnsUpdateServiceTests
     public async Task PublicIpFetchedExactlyOnce_RegardlessOfRecordCount()
     {
         SetupCache([]);
-        var config = BuildConfig(("Z1", ["a.example.com", "b.example.com", "c.example.com"]));
+        SetupManagedRecords("a.example.com", "b.example.com", "c.example.com");
 
-        await CreateSut().RunOnceAsync(config, CancellationToken.None);
+        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
 
         _publicIp.Verify(p => p.GetCurrentIpAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task MultipleZonesInOneProvider_AllProcessedInSingleRun()
+    public async Task MultipleProvidersInOneRun_AllProcessed()
     {
         SetupCache([]);
-        var config = BuildConfig(
-            ("Z1", ["a.example.com"]),
-            ("Z2", ["b.example.com"]));
 
-        await CreateSut().RunOnceAsync(config, CancellationToken.None);
+        var first = new Mock<IDnsProvider>();
+        first.Setup(p => p.ManagedRecords).Returns([new ManagedRecord("a.example.com", 300)]);
 
-        _dnsProvider.Verify(p => p.UpsertRecordAsync(
-            It.IsAny<ZoneOptions>(), "a.example.com", CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
-        _dnsProvider.Verify(p => p.UpsertRecordAsync(
-            It.IsAny<ZoneOptions>(), "b.example.com", CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
+        var second = new Mock<IDnsProvider>();
+        second.Setup(p => p.ManagedRecords).Returns([new ManagedRecord("b.example.com", 300)]);
+
+        await CreateSut(first.Object, second.Object).RunOnceAsync(CancellationToken.None);
+
+        first.Verify(p => p.UpsertRecordAsync(
+            It.Is<ManagedRecord>(r => r.Name == "a.example.com"), CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
+        second.Verify(p => p.UpsertRecordAsync(
+            It.Is<ManagedRecord>(r => r.Name == "b.example.com"), CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
     }
 }

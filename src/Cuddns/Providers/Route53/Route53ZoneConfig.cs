@@ -1,6 +1,6 @@
-namespace Cuddns.Options;
+namespace Cuddns.Providers.Route53;
 
-public sealed class ZoneOptions
+public sealed class Route53ZoneConfig
 {
     public string HostedZoneId { get; set; } = string.Empty;
 

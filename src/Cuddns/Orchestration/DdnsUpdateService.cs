@@ -1,5 +1,4 @@
 using Cuddns.Cache;
-using Cuddns.Options;
 using Cuddns.Providers;
 using Cuddns.PublicIp;
 using Microsoft.Extensions.Logging;
@@ -9,54 +8,34 @@ namespace Cuddns.Orchestration;
 public sealed class DdnsUpdateService(
     IPublicIpProvider publicIpProvider,
     IIpCacheStore cacheStore,
-    IReadOnlyDictionary<string, IDnsProviderFactory> providerFactories,
+    IReadOnlyList<IDnsProvider> dnsProviders,
     ILogger<DdnsUpdateService> logger)
 {
-    public async Task RunOnceAsync(CuddnsOptions config, CancellationToken cancellationToken)
+    public async Task RunOnceAsync(CancellationToken cancellationToken)
     {
         var currentIp = await publicIpProvider.GetCurrentIpAsync(cancellationToken);
         var cache = await cacheStore.LoadAsync(cancellationToken);
         var updated = new Dictionary<string, IpCacheEntry>(cache);
 
-        foreach (var provider in config.Providers)
+        foreach (var provider in dnsProviders)
         {
-            if (!providerFactories.TryGetValue(provider.Type, out var factory))
+            foreach (var record in provider.ManagedRecords)
             {
-                logger.LogError("No provider registered for type '{ProviderType}'; skipping.", provider.Type);
-                continue;
-            }
-
-            IDnsProvider dnsProvider;
-            try
-            {
-                dnsProvider = factory.Create(provider);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to initialize provider '{ProviderType}'; skipping.", provider.Type);
-                continue;
-            }
-
-            foreach (var zone in provider.Zones)
-            {
-                foreach (var record in zone.Records)
+                if (cache.TryGetValue(record.Name, out var entry) && entry.Ip == currentIp)
                 {
-                    if (cache.TryGetValue(record, out var entry) && entry.Ip == currentIp)
-                    {
-                        logger.LogInformation("No update needed. {Record} already points to {Ip}", record, currentIp);
-                        continue;
-                    }
+                    logger.LogInformation("No update needed. {Record} already points to {Ip}", record.Name, currentIp);
+                    continue;
+                }
 
-                    try
-                    {
-                        await dnsProvider.UpsertRecordAsync(zone, record, currentIp, cancellationToken);
-                        updated[record] = new IpCacheEntry(currentIp, DateTimeOffset.UtcNow);
-                        logger.LogInformation("Updated {Record} to {Ip}", record, currentIp);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError(ex, "Failed updating {Record}", record);
-                    }
+                try
+                {
+                    await provider.UpsertRecordAsync(record, currentIp, cancellationToken);
+                    updated[record.Name] = new IpCacheEntry(currentIp, DateTimeOffset.UtcNow);
+                    logger.LogInformation("Updated {Record} to {Ip}", record.Name, currentIp);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed updating {Record}", record.Name);
                 }
             }
         }
