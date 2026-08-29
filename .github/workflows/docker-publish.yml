@@ -3,15 +3,17 @@ name: Docker
 # Versioning: git tags of the form vX.Y.Z are the single source of truth for releases.
 # A tag push builds and pushes semver image tags (X.Y.Z, X.Y, latest) and bakes that
 # same version into the .NET assembly and the CUDDNS_VERSION runtime env var (see
-# Dockerfile). Pushes to main publish a rolling "edge" tag for testing pre-release
-# builds; pull requests build (multi-arch, unpushed) as a validation-only check.
+# Dockerfile). Pushes to develop publish a rolling "edge" tag for testing
+# pre-release builds; pull requests build (multi-arch, unpushed) as a
+# validation-only check. Plain pushes to master (outside of a release tag) are
+# built and tested but not published under any rolling tag.
 
 on:
   push:
-    branches: [main]
+    branches: [develop, master]
     tags: ["v*.*.*"]
   pull_request:
-    branches: [main]
+    branches: [develop, master]
 
 permissions:
   contents: read
@@ -63,7 +65,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/develop' }}
             type=sha,prefix=sha-,format=short
 
       - name: Set up QEMU

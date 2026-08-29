@@ -44,11 +44,11 @@ and easy to run in a homelab.
      --name cuddns \
      -v "$(pwd)/config:/config:ro" \
      -v cuddns-data:/data \
-     ghcr.io/<owner>/cuddns:latest
+     ghcr.io/sesser/cuddns:latest
    ```
 
-   Replace `<owner>` with this repo's GitHub owner/org once it's pushed and
-   the [publish workflow](.github/workflows/docker-publish.yml) has run.
+   `latest` is published once the first `vX.Y.Z` release tag is pushed; until
+   then, use `ghcr.io/sesser/cuddns:edge` for the latest build off `develop`.
 
    `/config` holds your `config.yaml` and `.env`; `/data` persists the IP
    cache across restarts.
@@ -114,3 +114,7 @@ Versioning and image publishing are handled by
 [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml) —
 push a `vX.Y.Z` tag to cut a release; see that file's header comment for the
 full tagging scheme.
+
+## License
+
+[MIT](LICENSE)
