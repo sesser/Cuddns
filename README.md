@@ -1,11 +1,11 @@
 # Cuddns
 
 A small, self-hosted Dynamic DNS updater. It runs on a schedule, checks your
-public IP, and updates DNS records through a pluggable provider (Route53
-today) — only when the IP actually changed, tracked via a local cache so it
-doesn't hammer your DNS provider's API every run. Built to replace a pile of
-personal `update-r53` bash scripts with something configurable, testable,
-and easy to run in a homelab.
+public IP, and updates DNS records through a pluggable provider (Route53 and
+DuckDNS today) — only when the IP actually changed, tracked via a local
+cache so it doesn't hammer your DNS provider's API every run. Built to
+replace a pile of personal `update-r53` bash scripts with something
+configurable, testable, and easy to run in a homelab.
 
 > [!NOTE]
 > This project was vibe coded — designed and built almost entirely through
@@ -17,8 +17,8 @@ and easy to run in a homelab.
 - **Scheduled updates** — configurable interval, no external cron needed.
 - **IP caching** — skips the update (and the API call) when the public IP
   hasn't changed since last run.
-- **Plugin-style providers** — ships with AWS Route53; more can be added
-  without touching the core update loop.
+- **Plugin-style providers** — ships with AWS Route53 and DuckDNS; more can
+  be added without touching the core update loop.
 - **YAML config with secret substitution** — `${VAR_NAME}` placeholders
   resolved from the environment or a `.env` file, so credentials never live
   in the config file itself.
@@ -93,21 +93,34 @@ providers:
           - example.com
           - www.example.com
           - vpn.example.com
+
+  - type: duckdns
+    token: ${DUCKDNS_TOKEN}
+    records:
+      - home.duckdns.org
 ```
 
 - `intervalSeconds` — how often to check the public IP and update records.
-- `providers[].type` — which provider implementation to use (`route53` for now).
-- `providers[].accessKeyId` / `secretAccessKey` — AWS credentials; use
-  `${VAR}` placeholders, never commit real values.
+- `providers[].type` — which provider implementation to use (`route53` or `duckdns`).
+
+**route53**
+- `accessKeyId` / `secretAccessKey` — AWS credentials; use `${VAR}`
+  placeholders, never commit real values.
 - `zones[].hostedZoneId` — the Route53 hosted zone ID.
 - `zones[].ttl` — TTL applied to updated records.
 - `zones[].records` — the A records to keep pointed at your current public IP.
+
+**duckdns**
+- `token` — your DuckDNS account token; use a `${VAR}` placeholder.
+- `records` — one or more `*.duckdns.org` hostnames to keep updated. TTL
+  isn't configurable — DuckDNS manages it itself.
 
 ## Example `.env`
 
 ```dotenv
 AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
 AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+DUCKDNS_TOKEN=00000000-0000-0000-0000-000000000000
 ```
 
 Any `${VAR_NAME}` in `config.yaml` is resolved from this file first, then

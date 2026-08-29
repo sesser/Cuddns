@@ -31,3 +31,8 @@ providers:
         records:
           - photos.example.com
           - cloud.example.com
+
+  - type: duckdns
+    token: ${DUCKDNS_TOKEN}
+    records:
+      - home.duckdns.org
