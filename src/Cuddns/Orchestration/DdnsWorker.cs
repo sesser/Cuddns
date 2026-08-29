@@ -16,7 +16,7 @@ public sealed class DdnsWorker(
         {
             try
             {
-                await updateService.RunOnceAsync(config, stoppingToken);
+                await updateService.RunOnceAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

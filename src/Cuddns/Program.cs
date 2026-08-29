@@ -1,7 +1,6 @@
 using Cuddns;
 using Cuddns.Cache;
 using Cuddns.Config;
-using Cuddns.Options;
 using Cuddns.Orchestration;
 using Cuddns.Providers;
 using Cuddns.Providers.Route53;
@@ -14,7 +13,16 @@ var configPath = Environment.GetEnvironmentVariable("CUDDNS_CONFIG_PATH") ?? "/c
 var envPath = Environment.GetEnvironmentVariable("CUDDNS_ENV_PATH") ?? "/config/.env";
 var cachePath = Environment.GetEnvironmentVariable("CUDDNS_CACHE_PATH") ?? "/data/cache.json";
 
-var cuddnsOptions = new ConfigLoader().Load(configPath, envPath);
+// The provider catalog: every provider type Cuddns ships with. Adding a new provider means
+// adding one entry here. Only the types actually referenced in config get instantiated below.
+IDnsProviderFactory[] catalog = [new Route53DnsProviderFactory()];
+
+var cuddnsOptions = new ConfigLoader(catalog).Load(configPath, envPath);
+
+var catalogByType = catalog.ToDictionary(f => f.ProviderType);
+var dnsProviders = cuddnsOptions.Providers
+    .Select(providerConfig => catalogByType[providerConfig.Type].Create(providerConfig))
+    .ToList();
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -29,11 +37,7 @@ builder.Services.AddHttpClient<IPublicIpProvider, IfConfigNetPublicIpProvider>(c
 builder.Services.AddSingleton<IIpCacheStore>(sp =>
     new JsonFileIpCacheStore(cachePath, sp.GetRequiredService<ILogger<JsonFileIpCacheStore>>()));
 
-builder.Services.AddSingleton<IReadOnlyDictionary<string, IDnsProviderFactory>>(_ =>
-{
-    IDnsProviderFactory[] factories = [new Route53DnsProviderFactory()];
-    return factories.ToDictionary(f => f.ProviderType, f => f);
-});
+builder.Services.AddSingleton<IReadOnlyList<IDnsProvider>>(dnsProviders);
 
 builder.Services.AddSingleton<DdnsUpdateService>();
 builder.Services.AddHostedService<DdnsWorker>();
