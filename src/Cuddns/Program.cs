@@ -22,6 +22,9 @@ builder.Services.AddSingleton(cuddnsOptions);
 builder.Services.AddHttpClient<IPublicIpProvider, IfConfigNetPublicIpProvider>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);
+    // ifconfig.net returns a full HTML page instead of the plain-text IP for clients it
+    // doesn't recognize as a CLI tool (the default HttpClient sends no User-Agent at all).
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("curl/8.5.0");
 });
 builder.Services.AddSingleton<IIpCacheStore>(sp =>
     new JsonFileIpCacheStore(cachePath, sp.GetRequiredService<ILogger<JsonFileIpCacheStore>>()));
