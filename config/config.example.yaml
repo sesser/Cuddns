@@ -36,3 +36,13 @@ providers:
     token: ${DUCKDNS_TOKEN}
     records:
       - home.duckdns.org
+
+  - type: cloudflare
+    apiToken: ${CLOUDFLARE_API_TOKEN}
+    zones:
+      - zoneId: 023e105f4ecef8ad9ca31a8372d0c353
+        ttl: 300
+        proxied: false
+        records:
+          - home.example.com
+          - vpn.example.com

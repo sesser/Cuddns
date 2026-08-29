@@ -1,6 +1,7 @@
 using Cuddns.Config;
 using Cuddns.Options;
 using Cuddns.Providers;
+using Cuddns.Providers.Cloudflare;
 using Cuddns.Providers.DuckDns;
 using Cuddns.Providers.Route53;
 using FluentAssertions;
@@ -16,6 +17,7 @@ public class ConfigLoaderTests : IDisposable
     [
         new Route53DnsProviderFactory(NullLogger<Route53DnsProviderFactory>.Instance),
         new DuckDnsProviderFactory(NullLogger<DuckDnsProviderFactory>.Instance),
+        new CloudflareDnsProviderFactory(NullLogger<CloudflareDnsProviderFactory>.Instance),
     ];
 
     private string ConfigPath => Path.Combine(_tempDir, "config.yaml");
@@ -155,19 +157,43 @@ public class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public async Task Load_UnknownProviderType_ThrowsNamingType()
+    public async Task Load_CloudflareProvider_BindsCorrectly()
     {
         await File.WriteAllTextAsync(ConfigPath, """
             intervalSeconds: 60
             providers:
               - type: cloudflare
                 apiToken: unused
+                zones:
+                  - zoneId: abc123
+                    ttl: 1
+                    proxied: true
+                    records:
+                      - home.example.com
+            """);
+
+        var options = CreateSut().Load(ConfigPath, envPath: null);
+
+        var provider = options.Providers[0].Should().BeOfType<CloudflareProviderConfig>().Subject;
+        provider.Zones[0].ZoneId.Should().Be("abc123");
+        provider.Zones[0].Proxied.Should().BeTrue();
+        provider.Zones[0].Records.Should().Equal("home.example.com");
+    }
+
+    [Fact]
+    public async Task Load_UnknownProviderType_ThrowsNamingType()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            providers:
+              - type: godaddy
+                apiToken: unused
             """);
 
         var act = () => CreateSut().Load(ConfigPath, envPath: null);
 
         act.Should().Throw<ConfigValidationException>()
-            .WithMessage("*cloudflare*");
+            .WithMessage("*godaddy*");
     }
 
     public void Dispose()
