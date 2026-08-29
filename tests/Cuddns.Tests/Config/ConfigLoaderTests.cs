@@ -1,6 +1,7 @@
 using Cuddns.Config;
 using Cuddns.Options;
 using Cuddns.Providers;
+using Cuddns.Providers.DuckDns;
 using Cuddns.Providers.Route53;
 using FluentAssertions;
 
@@ -10,7 +11,7 @@ public class ConfigLoaderTests : IDisposable
 {
     private readonly string _tempDir = Directory.CreateTempSubdirectory("cuddns-config-tests-").FullName;
     private readonly List<string> _envVarsToClear = [];
-    private readonly IDnsProviderFactory[] _catalog = [new Route53DnsProviderFactory()];
+    private readonly IDnsProviderFactory[] _catalog = [new Route53DnsProviderFactory(), new DuckDnsProviderFactory()];
 
     private string ConfigPath => Path.Combine(_tempDir, "config.yaml");
     private string EnvPath => Path.Combine(_tempDir, ".env");
@@ -117,6 +118,35 @@ public class ConfigLoaderTests : IDisposable
 
         var provider = options.Providers[0].Should().BeOfType<Route53ProviderConfig>().Subject;
         provider.SecretAccessKey.Should().Be("from-dot-env-file");
+    }
+
+    [Fact]
+    public async Task Load_MultipleProviderTypes_BindsEachIntoItsOwnConcreteType()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            providers:
+              - type: route53
+                accessKeyId: unused
+                secretAccessKey: unused
+                zones:
+                  - hostedZoneId: Z123
+                    ttl: 300
+                    records:
+                      - a.example.com
+              - type: duckdns
+                token: test-token
+                records:
+                  - home.duckdns.org
+            """);
+
+        var options = CreateSut().Load(ConfigPath, envPath: null);
+
+        options.Providers.Should().HaveCount(2);
+        options.Providers[0].Should().BeOfType<Route53ProviderConfig>();
+        var duckDns = options.Providers[1].Should().BeOfType<DuckDnsProviderConfig>().Subject;
+        duckDns.Token.Should().Be("test-token");
+        duckDns.Records.Should().Equal("home.duckdns.org");
     }
 
     [Fact]

@@ -3,6 +3,7 @@ using Cuddns.Cache;
 using Cuddns.Config;
 using Cuddns.Orchestration;
 using Cuddns.Providers;
+using Cuddns.Providers.DuckDns;
 using Cuddns.Providers.Route53;
 using Cuddns.PublicIp;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,7 +16,7 @@ var cachePath = Environment.GetEnvironmentVariable("CUDDNS_CACHE_PATH") ?? "/dat
 
 // The provider catalog: every provider type Cuddns ships with. Adding a new provider means
 // adding one entry here. Only the types actually referenced in config get instantiated below.
-IDnsProviderFactory[] catalog = [new Route53DnsProviderFactory()];
+IDnsProviderFactory[] catalog = [new Route53DnsProviderFactory(), new DuckDnsProviderFactory()];
 
 var cuddnsOptions = new ConfigLoader(catalog).Load(configPath, envPath);
 
