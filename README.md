@@ -1,10 +1,10 @@
 # Cuddns
 
 A small, self-hosted Dynamic DNS updater. It runs on a schedule, checks your
-public IP, and updates DNS records through a pluggable provider (Route53 and
-DuckDNS today) — only when the IP actually changed, tracked via a local
-cache so it doesn't hammer your DNS provider's API every run. Built to
-replace a pile of personal `update-r53` bash scripts with something
+public IP, and updates DNS records through a pluggable provider (Route53,
+DuckDNS, and Cloudflare today) — only when the IP actually changed, tracked
+via a local cache so it doesn't hammer your DNS provider's API every run.
+Built to replace a pile of personal `update-r53` bash scripts with something
 configurable, testable, and easy to run in a homelab.
 
 > [!NOTE]
@@ -17,8 +17,8 @@ configurable, testable, and easy to run in a homelab.
 - **Scheduled updates** — configurable interval, no external cron needed.
 - **IP caching** — skips the update (and the API call) when the public IP
   hasn't changed since last run.
-- **Plugin-style providers** — ships with AWS Route53 and DuckDNS; more can
-  be added without touching the core update loop.
+- **Plugin-style providers** — ships with AWS Route53, DuckDNS, and
+  Cloudflare; more can be added without touching the core update loop.
 - **YAML config with secret substitution** — `${VAR_NAME}` placeholders
   resolved from the environment or a `.env` file, so credentials never live
   in the config file itself.
@@ -98,10 +98,21 @@ providers:
     token: ${DUCKDNS_TOKEN}
     records:
       - home.duckdns.org
+
+  - type: cloudflare
+    apiToken: ${CLOUDFLARE_API_TOKEN}
+    zones:
+      - zoneId: 023e105f4ecef8ad9ca31a8372d0c353
+        ttl: 300
+        proxied: false
+        records:
+          - home.example.com
+          - vpn.example.com
 ```
 
 - `intervalSeconds` — how often to check the public IP and update records.
-- `providers[].type` — which provider implementation to use (`route53` or `duckdns`).
+- `providers[].type` — which provider implementation to use (`route53`,
+  `duckdns`, or `cloudflare`).
 
 **route53**
 - `accessKeyId` / `secretAccessKey` — AWS credentials; use `${VAR}`
@@ -115,12 +126,24 @@ providers:
 - `records` — one or more `*.duckdns.org` hostnames to keep updated. TTL
   isn't configurable — DuckDNS manages it itself.
 
+**cloudflare**
+- `apiToken` — an API token scoped to `Zone:DNS:Edit` for the target
+  zone(s); use a `${VAR}` placeholder. Create one under
+  My Profile → API Tokens on the Cloudflare dashboard.
+- `zones[].zoneId` — the Cloudflare zone ID (found on the zone's Overview page).
+- `zones[].ttl` — TTL applied to updated records; use `1` for Cloudflare's
+  "Auto" TTL.
+- `zones[].proxied` — whether records are proxied through Cloudflare (orange
+  cloud) rather than DNS-only. Defaults to `false`.
+- `zones[].records` — the A records to keep pointed at your current public IP.
+
 ## Example `.env`
 
 ```dotenv
 AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
 AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 DUCKDNS_TOKEN=00000000-0000-0000-0000-000000000000
+CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
 ```
 
 Any `${VAR_NAME}` in `config.yaml` is resolved from this file first, then
