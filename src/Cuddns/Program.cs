@@ -51,13 +51,34 @@ builder.Logging.ClearProviders();
 ConfigureConsoleLogging(builder.Logging);
 
 builder.Services.AddSingleton(cuddnsOptions);
-builder.Services.AddHttpClient<IPublicIpProvider, IfConfigNetPublicIpProvider>(client =>
+
+builder.Services.AddHttpClient<IfConfigNetPublicIpSource>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);
     // ifconfig.net returns a full HTML page instead of the plain-text IP for clients it
     // doesn't recognize as a CLI tool (the default HttpClient sends no User-Agent at all).
     client.DefaultRequestHeaders.UserAgent.ParseAdd("curl/8.5.0");
 });
+builder.Services.AddHttpClient<IpifyPublicIpSource>(client => client.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddHttpClient<IcanhazipPublicIpSource>(client => client.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddHttpClient<IdentMePublicIpSource>(client => client.Timeout = TimeSpan.FromSeconds(10));
+
+builder.Services.AddSingleton<IPublicIpResolver>(sp =>
+{
+    var sourceCatalog = new Dictionary<string, IPublicIpSource>
+    {
+        [PublicIpSourceNames.IfConfig] = sp.GetRequiredService<IfConfigNetPublicIpSource>(),
+        [PublicIpSourceNames.Ipify] = sp.GetRequiredService<IpifyPublicIpSource>(),
+        [PublicIpSourceNames.Icanhazip] = sp.GetRequiredService<IcanhazipPublicIpSource>(),
+        [PublicIpSourceNames.IdentMe] = sp.GetRequiredService<IdentMePublicIpSource>(),
+    };
+    var sourceNames = cuddnsOptions.PublicIpSources is { Count: > 0 }
+        ? cuddnsOptions.PublicIpSources
+        : PublicIpSourceNames.All;
+    var sources = sourceNames.Select(name => sourceCatalog[name]).ToList();
+    return new PublicIpResolver(sources, sp.GetRequiredService<ILogger<PublicIpResolver>>());
+});
+
 builder.Services.AddSingleton<IIpCacheStore>(sp =>
     new JsonFileIpCacheStore(cachePath, sp.GetRequiredService<ILogger<JsonFileIpCacheStore>>()));
 

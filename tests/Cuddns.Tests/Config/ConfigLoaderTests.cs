@@ -204,6 +204,54 @@ public class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
+    public async Task Load_PublicIpSources_BindsCorrectly()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            publicIpSources:
+              - ipify
+              - icanhazip
+            providers:
+              - type: route53
+                accessKeyId: unused
+                secretAccessKey: unused
+                zones:
+                  - hostedZoneId: Z123
+                    ttl: 300
+                    records:
+                      - a.example.com
+            """);
+
+        var options = CreateSut().Load(ConfigPath, envPath: null);
+
+        options.PublicIpSources.Should().Equal("ipify", "icanhazip");
+    }
+
+    [Fact]
+    public async Task Load_UnknownPublicIpSource_ThrowsNamingSource()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            publicIpSources:
+              - carrier-pigeon
+            providers:
+              - type: route53
+                accessKeyId: unused
+                secretAccessKey: unused
+                zones:
+                  - hostedZoneId: Z123
+                    ttl: 300
+                    records:
+                      - a.example.com
+            """);
+
+        var act = () => CreateSut().Load(ConfigPath, envPath: null);
+
+        act.Should().Throw<ConfigValidationException>()
+            .WithMessage("*carrier-pigeon*");
+    }
+
+    [Fact]
     public async Task Load_UnknownProviderType_ThrowsNamingType()
     {
         await File.WriteAllTextAsync(ConfigPath, """
