@@ -11,15 +11,16 @@ namespace Cuddns.Tests.Orchestration;
 public class DdnsUpdateServiceTests
 {
     private const string CurrentIp = "203.0.113.10";
+    private const string CurrentIpv6 = "2001:db8::1";
 
-    private readonly Mock<IPublicIpProvider> _publicIp = new();
+    private readonly Mock<IPublicIpResolver> _publicIp = new();
     private readonly Mock<IIpCacheStore> _cacheStore = new();
     private readonly Mock<IDnsProvider> _dnsProvider = new();
 
     public DdnsUpdateServiceTests()
     {
-        _publicIp.Setup(p => p.GetCurrentIpAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(CurrentIp);
+        _publicIp.Setup(p => p.GetCurrentIpsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PublicIpResult(CurrentIp, CurrentIpv6));
     }
 
     private DdnsUpdateService CreateSut(params IDnsProvider[] providers)
@@ -123,7 +124,50 @@ public class DdnsUpdateServiceTests
 
         await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
 
-        _publicIp.Verify(p => p.GetCurrentIpAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _publicIp.Verify(p => p.GetCurrentIpsAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AaaaRecord_UsesIPv6AndDistinctCacheKeyFromARecordWithSameName()
+    {
+        SetupCache([]);
+        _dnsProvider.Setup(p => p.ManagedRecords).Returns(
+        [
+            new ManagedRecord("dual.example.com", 300, RecordType.A),
+            new ManagedRecord("dual.example.com", 300, RecordType.AAAA),
+        ]);
+
+        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
+
+        _dnsProvider.Verify(p => p.UpsertRecordAsync(
+            It.Is<ManagedRecord>(r => r.Name == "dual.example.com" && r.Type == RecordType.A),
+            CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
+        _dnsProvider.Verify(p => p.UpsertRecordAsync(
+            It.Is<ManagedRecord>(r => r.Name == "dual.example.com" && r.Type == RecordType.AAAA),
+            CurrentIpv6, It.IsAny<CancellationToken>()), Times.Once);
+
+        _cacheStore.Verify(c => c.SaveAsync(
+            It.Is<IReadOnlyDictionary<string, IpCacheEntry>>(d =>
+                d["dual.example.com"].Ip == CurrentIp &&
+                d["dual.example.com|AAAA"].Ip == CurrentIpv6),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AaaaRecord_NoIPv6AddressAvailable_SkipsWithoutCallingProvider()
+    {
+        SetupCache([]);
+        _publicIp.Setup(p => p.GetCurrentIpsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PublicIpResult(CurrentIp, null));
+        _dnsProvider.Setup(p => p.ManagedRecords).Returns(
+        [
+            new ManagedRecord("v6only.example.com", 300, RecordType.AAAA),
+        ]);
+
+        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
+
+        _dnsProvider.Verify(p => p.UpsertRecordAsync(
+            It.IsAny<ManagedRecord>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

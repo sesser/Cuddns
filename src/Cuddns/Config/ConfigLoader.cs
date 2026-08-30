@@ -45,6 +45,7 @@ public sealed partial class ConfigLoader(IReadOnlyList<IDnsProviderFactory> cata
         var options = new CuddnsOptions
         {
             IntervalSeconds = raw.IntervalSeconds,
+            PublicIpSources = raw.PublicIpSources,
             Providers = raw.Providers.Select(BindProvider).ToList(),
         };
 
@@ -103,6 +104,8 @@ public sealed partial class ConfigLoader(IReadOnlyList<IDnsProviderFactory> cata
     private sealed class RawConfig
     {
         public int IntervalSeconds { get; set; } = 300;
+
+        public List<string>? PublicIpSources { get; set; }
 
         public List<Dictionary<string, object>> Providers { get; set; } = [];
     }

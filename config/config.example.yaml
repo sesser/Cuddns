@@ -8,6 +8,14 @@
 
 intervalSeconds: 300
 
+# Optional: which public-IP lookup sources to try, in order (first one that answers wins,
+# independently for IPv4 and IPv6). Omit this to use the built-in default order shown below.
+# publicIpSources:
+#   - ifconfig
+#   - ipify
+#   - icanhazip
+#   - identme
+
 providers:
   - type: route53
     accessKeyId: ${AWS_ACCESS_KEY_ID}

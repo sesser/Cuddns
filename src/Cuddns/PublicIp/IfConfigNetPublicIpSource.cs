@@ -2,12 +2,22 @@ using System.Net;
 
 namespace Cuddns.PublicIp;
 
-public sealed class IfConfigNetPublicIpProvider(HttpClient httpClient) : IPublicIpProvider
+public sealed class IfConfigNetPublicIpSource(HttpClient httpClient) : IPublicIpSource
 {
     private const int MaxAttempts = 2;
 
-    public async Task<string> GetCurrentIpAsync(CancellationToken cancellationToken)
+    public string Name => "ifconfig";
+
+    public async Task<string?> TryGetIpAsync(IpFamily family, CancellationToken cancellationToken)
     {
+        // ifconfig.net has a single endpoint with no way to pin the address family, so it can
+        // only be trusted for IPv4 (whichever family the outbound connection happens to use).
+        // IPv6 detection is left to family-pinned sources like ipify/icanhazip/ident.me.
+        if (family == IpFamily.IPv6)
+        {
+            return null;
+        }
+
         Exception? lastError = null;
 
         for (var attempt = 1; attempt <= MaxAttempts; attempt++)

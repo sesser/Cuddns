@@ -6,14 +6,14 @@ using Microsoft.Extensions.Logging;
 namespace Cuddns.Orchestration;
 
 public sealed class DdnsUpdateService(
-    IPublicIpProvider publicIpProvider,
+    IPublicIpResolver publicIpResolver,
     IIpCacheStore cacheStore,
     IReadOnlyList<IDnsProvider> dnsProviders,
     ILogger<DdnsUpdateService> logger)
 {
     public async Task RunOnceAsync(CancellationToken cancellationToken)
     {
-        var currentIp = await publicIpProvider.GetCurrentIpAsync(cancellationToken);
+        var currentIps = await publicIpResolver.GetCurrentIpsAsync(cancellationToken);
         var cache = await cacheStore.LoadAsync(cancellationToken);
         var updated = new Dictionary<string, IpCacheEntry>(cache);
 
@@ -21,25 +21,42 @@ public sealed class DdnsUpdateService(
         {
             foreach (var record in provider.ManagedRecords)
             {
-                if (cache.TryGetValue(record.Name, out var entry) && entry.Ip == currentIp)
+                var currentIp = record.Type == RecordType.AAAA ? currentIps.IPv6 : currentIps.IPv4;
+                if (currentIp is null)
                 {
-                    logger.LogInformation("No update needed. {Record} already points to {Ip}", record.Name, currentIp);
+                    logger.LogWarning(
+                        "Skipping {Record} ({Type}): no public address of that family available this run.",
+                        record.Name, record.Type);
+                    continue;
+                }
+
+                var cacheKey = CacheKey(record);
+                if (cache.TryGetValue(cacheKey, out var entry) && entry.Ip == currentIp)
+                {
+                    logger.LogInformation(
+                        "No update needed. {Record} ({Type}) already points to {Ip}", record.Name, record.Type, currentIp);
                     continue;
                 }
 
                 try
                 {
                     await provider.UpsertRecordAsync(record, currentIp, cancellationToken);
-                    updated[record.Name] = new IpCacheEntry(currentIp, DateTimeOffset.UtcNow);
-                    logger.LogInformation("Updated {Record} to {Ip}", record.Name, currentIp);
+                    updated[cacheKey] = new IpCacheEntry(currentIp, DateTimeOffset.UtcNow);
+                    logger.LogInformation("Updated {Record} ({Type}) to {Ip}", record.Name, record.Type, currentIp);
                 }
                 catch (Exception ex)
                 {
-                    logger.LogError(ex, "Failed updating {Record}", record.Name);
+                    logger.LogError(ex, "Failed updating {Record} ({Type})", record.Name, record.Type);
                 }
             }
         }
 
         await cacheStore.SaveAsync(updated, cancellationToken);
     }
+
+    // A records keep the plain hostname as their cache key (unchanged from before AAAA
+    // support existed) so upgrading doesn't invalidate every existing cache.json; AAAA
+    // entries for the same hostname need a distinct key to track independently.
+    private static string CacheKey(ManagedRecord record) =>
+        record.Type == RecordType.A ? record.Name : $"{record.Name}|{record.Type}";
 }
