@@ -82,6 +82,7 @@ docker compose up -d
 ```yaml
 intervalSeconds: 300
 
+# Optional: enableIpv6: false  (default)
 # Optional: publicIpSources: [ifconfig, ipify, icanhazip, identme]  (default order shown)
 
 providers:
@@ -120,14 +121,18 @@ providers:
 ```
 
 - `intervalSeconds` — how often to check the public IP and update records.
+- `enableIpv6` — optional, defaults to `false`. No provider writes `AAAA`
+  records yet, so this is off by default to avoid pointless IPv6 lookups
+  (and log noise) on hosts without IPv6 connectivity. Safe to leave off
+  until a provider you use adds IPv6 support.
 - `publicIpSources` — optional; which public-IP lookup sources to try, in
   order (the first that answers wins, resolved independently for IPv4 and
-  IPv6). Defaults to `[ifconfig, ipify, icanhazip, identme]` if omitted.
-  `ifconfig` (ifconfig.net) only ever answers for IPv4 — it has no way to
-  pin the address family — so IPv6 detection relies on the others, which
-  each expose separate v4/v6 endpoints. A host with no IPv6 connectivity
-  just gets `null` back for IPv6 and any `AAAA` records are skipped that
-  run rather than failing the whole update.
+  IPv6 when `enableIpv6` is on). Defaults to `[ifconfig, ipify, icanhazip,
+  identme]` if omitted. `ifconfig` (ifconfig.net) only ever answers for
+  IPv4 — it has no way to pin the address family — so IPv6 detection
+  relies on the others, which each expose separate v4/v6 endpoints. A host
+  with no IPv6 connectivity just gets `null` back for IPv6 and any `AAAA`
+  records are skipped that run rather than failing the whole update.
 - `providers[].type` — which provider implementation to use (`route53`,
   `duckdns`, `cloudflare`, or `noip`).
 

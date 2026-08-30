@@ -8,6 +8,13 @@ public sealed class CuddnsOptions
     public int IntervalSeconds { get; set; } = 300;
 
     /// <summary>
+    /// Whether to look up (and act on) a public IPv6 address at all. Defaults to false: no
+    /// provider consumes AAAA records yet, so attempting IPv6 lookups by default would just be
+    /// wasted network calls (and log noise) for the common case of a host without IPv6.
+    /// </summary>
+    public bool EnableIpv6 { get; set; }
+
+    /// <summary>
     /// Ordered public-IP sources to try, by name (see <see cref="PublicIpSourceNames"/>).
     /// Null/empty means "use the built-in default order" (<see cref="PublicIpSourceNames.All"/>).
     /// </summary>
