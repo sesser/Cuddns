@@ -26,7 +26,7 @@ public class PublicIpResolverTests
     }
 
     private static PublicIpResolver CreateSut(params IPublicIpSource[] sources) =>
-        new(sources, NullLogger<PublicIpResolver>.Instance);
+        new(sources, enableIpv6: true, NullLogger<PublicIpResolver>.Instance);
 
     [Fact]
     public async Task GetCurrentIpsAsync_FirstSourceAnswersBothFamilies_ReturnsThem()
@@ -82,5 +82,18 @@ public class PublicIpResolverTests
 
         result.IPv4.Should().BeNull();
         result.IPv6.Should().Be("2001:db8::1");
+    }
+
+    [Fact]
+    public async Task GetCurrentIpsAsync_Ipv6Disabled_NeverQueriesSourcesForIpv6()
+    {
+        var dualStack = new FakeSource("dual", family => family == IpFamily.IPv4 ? "203.0.113.10" : "2001:db8::1");
+        var sut = new PublicIpResolver([dualStack], enableIpv6: false, NullLogger<PublicIpResolver>.Instance);
+
+        var result = await sut.GetCurrentIpsAsync(CancellationToken.None);
+
+        result.IPv4.Should().Be("203.0.113.10");
+        result.IPv6.Should().BeNull();
+        dualStack.Requests.Should().Equal(IpFamily.IPv4);
     }
 }

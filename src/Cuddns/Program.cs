@@ -76,7 +76,7 @@ builder.Services.AddSingleton<IPublicIpResolver>(sp =>
         ? cuddnsOptions.PublicIpSources
         : PublicIpSourceNames.All;
     var sources = sourceNames.Select(name => sourceCatalog[name]).ToList();
-    return new PublicIpResolver(sources, sp.GetRequiredService<ILogger<PublicIpResolver>>());
+    return new PublicIpResolver(sources, cuddnsOptions.EnableIpv6, sp.GetRequiredService<ILogger<PublicIpResolver>>());
 });
 
 builder.Services.AddSingleton<IIpCacheStore>(sp =>

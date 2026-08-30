@@ -8,12 +8,15 @@ namespace Cuddns.PublicIp;
 /// (a source that's IPv4-only, like ifconfig.net, simply falls through for IPv6 requests).
 /// </summary>
 public sealed class PublicIpResolver(
-    IReadOnlyList<IPublicIpSource> sources, ILogger<PublicIpResolver> logger) : IPublicIpResolver
+    IReadOnlyList<IPublicIpSource> sources, bool enableIpv6, ILogger<PublicIpResolver> logger) : IPublicIpResolver
 {
     public async Task<PublicIpResult> GetCurrentIpsAsync(CancellationToken cancellationToken)
     {
         var ipv4 = await ResolveAsync(IpFamily.IPv4, cancellationToken);
-        var ipv6 = await ResolveAsync(IpFamily.IPv6, cancellationToken);
+        // Skipped (not just unattempted-then-null) when disabled: with no provider consuming
+        // AAAA yet, probing IPv6 sources on every run is pure cost for hosts without IPv6
+        // connectivity — dead network attempts and a WARN log per source, every interval.
+        var ipv6 = enableIpv6 ? await ResolveAsync(IpFamily.IPv6, cancellationToken) : null;
 
         if (ipv4 is null && ipv6 is null)
         {

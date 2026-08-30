@@ -204,6 +204,49 @@ public class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
+    public async Task Load_EnableIpv6_DefaultsToFalse()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            providers:
+              - type: route53
+                accessKeyId: unused
+                secretAccessKey: unused
+                zones:
+                  - hostedZoneId: Z123
+                    ttl: 300
+                    records:
+                      - a.example.com
+            """);
+
+        var options = CreateSut().Load(ConfigPath, envPath: null);
+
+        options.EnableIpv6.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Load_EnableIpv6_BindsCorrectly()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            enableIpv6: true
+            providers:
+              - type: route53
+                accessKeyId: unused
+                secretAccessKey: unused
+                zones:
+                  - hostedZoneId: Z123
+                    ttl: 300
+                    records:
+                      - a.example.com
+            """);
+
+        var options = CreateSut().Load(ConfigPath, envPath: null);
+
+        options.EnableIpv6.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Load_PublicIpSources_BindsCorrectly()
     {
         await File.WriteAllTextAsync(ConfigPath, """

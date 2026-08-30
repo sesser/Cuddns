@@ -8,6 +8,11 @@
 
 intervalSeconds: 300
 
+# Optional: attempt public IPv6 lookups at all. Defaults to false — no provider currently
+# writes AAAA records, so leaving this off (the default) avoids pointless network calls and
+# log noise on hosts without IPv6 connectivity.
+# enableIpv6: false
+
 # Optional: which public-IP lookup sources to try, in order (first one that answers wins,
 # independently for IPv4 and IPv6). Omit this to use the built-in default order shown below.
 # publicIpSources:
