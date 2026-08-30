@@ -46,3 +46,9 @@ providers:
         records:
           - home.example.com
           - vpn.example.com
+
+  - type: noip
+    username: ${NOIP_USERNAME}
+    password: ${NOIP_PASSWORD}
+    records:
+      - home.example.com

@@ -2,8 +2,9 @@
 
 A small, self-hosted Dynamic DNS updater. It runs on a schedule, checks your
 public IP, and updates DNS records through a pluggable provider (Route53,
-DuckDNS, and Cloudflare today) — only when the IP actually changed, tracked
-via a local cache so it doesn't hammer your DNS provider's API every run.
+DuckDNS, Cloudflare, and No-IP today) — only when the IP actually changed,
+tracked via a local cache so it doesn't hammer your DNS provider's API every
+run.
 Built to replace a pile of personal `update-r53` bash scripts with something
 configurable, testable, and easy to run in a homelab.
 
@@ -17,8 +18,8 @@ configurable, testable, and easy to run in a homelab.
 - **Scheduled updates** — configurable interval, no external cron needed.
 - **IP caching** — skips the update (and the API call) when the public IP
   hasn't changed since last run.
-- **Plugin-style providers** — ships with AWS Route53, DuckDNS, and
-  Cloudflare; more can be added without touching the core update loop.
+- **Plugin-style providers** — ships with AWS Route53, DuckDNS, Cloudflare,
+  and No-IP; more can be added without touching the core update loop.
 - **YAML config with secret substitution** — `${VAR_NAME}` placeholders
   resolved from the environment or a `.env` file, so credentials never live
   in the config file itself.
@@ -108,11 +109,17 @@ providers:
         records:
           - home.example.com
           - vpn.example.com
+
+  - type: noip
+    username: ${NOIP_USERNAME}
+    password: ${NOIP_PASSWORD}
+    records:
+      - home.example.com
 ```
 
 - `intervalSeconds` — how often to check the public IP and update records.
 - `providers[].type` — which provider implementation to use (`route53`,
-  `duckdns`, or `cloudflare`).
+  `duckdns`, `cloudflare`, or `noip`).
 
 **route53**
 - `accessKeyId` / `secretAccessKey` — AWS credentials; use `${VAR}`
@@ -137,6 +144,14 @@ providers:
   cloud) rather than DNS-only. Defaults to `false`.
 - `zones[].records` — the A records to keep pointed at your current public IP.
 
+**noip**
+- `username` / `password` — your No-IP account credentials; use `${VAR}`
+  placeholders.
+- `records` — one or more hostnames configured under your No-IP account
+  (not restricted to a No-IP-owned domain). TTL isn't configurable via the
+  update API — No-IP manages it (paid plans can change it from their
+  dashboard).
+
 ## Example `.env`
 
 ```dotenv
@@ -144,6 +159,8 @@ AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
 AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 DUCKDNS_TOKEN=00000000-0000-0000-0000-000000000000
 CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
+NOIP_USERNAME=your-noip-username
+NOIP_PASSWORD=your-noip-password
 ```
 
 Any `${VAR_NAME}` in `config.yaml` is resolved from this file first, then

@@ -3,6 +3,7 @@ using Cuddns.Options;
 using Cuddns.Providers;
 using Cuddns.Providers.Cloudflare;
 using Cuddns.Providers.DuckDns;
+using Cuddns.Providers.NoIp;
 using Cuddns.Providers.Route53;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -18,6 +19,7 @@ public class ConfigLoaderTests : IDisposable
         new Route53DnsProviderFactory(NullLogger<Route53DnsProviderFactory>.Instance),
         new DuckDnsProviderFactory(NullLogger<DuckDnsProviderFactory>.Instance),
         new CloudflareDnsProviderFactory(NullLogger<CloudflareDnsProviderFactory>.Instance),
+        new NoIpProviderFactory(NullLogger<NoIpProviderFactory>.Instance),
     ];
 
     private string ConfigPath => Path.Combine(_tempDir, "config.yaml");
@@ -178,6 +180,27 @@ public class ConfigLoaderTests : IDisposable
         provider.Zones[0].ZoneId.Should().Be("abc123");
         provider.Zones[0].Proxied.Should().BeTrue();
         provider.Zones[0].Records.Should().Equal("home.example.com");
+    }
+
+    [Fact]
+    public async Task Load_NoIpProvider_BindsCorrectly()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            providers:
+              - type: noip
+                username: test-user
+                password: test-pass
+                records:
+                  - home.example.com
+            """);
+
+        var options = CreateSut().Load(ConfigPath, envPath: null);
+
+        var provider = options.Providers[0].Should().BeOfType<NoIpProviderConfig>().Subject;
+        provider.Username.Should().Be("test-user");
+        provider.Password.Should().Be("test-pass");
+        provider.Records.Should().Equal("home.example.com");
     }
 
     [Fact]
