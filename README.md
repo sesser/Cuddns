@@ -1,4 +1,5 @@
 # Cuddns
+[![Build/Test/Publish](https://github.com/sesser/Cuddns/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/sesser/Cuddns/actions/workflows/docker-publish.yml)
 
 A small, self-hosted Dynamic DNS updater. It runs on a schedule, checks your
 public IP, and updates DNS records through a pluggable provider (Route53,
