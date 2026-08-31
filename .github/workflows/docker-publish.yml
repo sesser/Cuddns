@@ -1,4 +1,4 @@
-name: Docker
+name: Build/Test/Publish
 
 # Versioning: git tags of the form vX.Y.Z are the single source of truth for releases.
 # A tag push builds and pushes semver image tags (X.Y.Z, X.Y, latest) and bakes that
