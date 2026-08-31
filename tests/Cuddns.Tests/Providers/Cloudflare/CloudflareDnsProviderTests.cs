@@ -112,4 +112,34 @@ public class CloudflareDnsProviderTests
 
         (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage("*boom*");
     }
+
+    [Fact]
+    public void ManagedRecords_AaaaSuffix_ParsesNameAndType()
+    {
+        var config = BuildConfig(("zone1", 300, false, ["vpn.example.com:aaaa"]));
+
+        var provider = new CloudflareDnsProvider(new HttpClient(), config);
+
+        provider.ManagedRecords.Should().BeEquivalentTo(
+        [
+            new ManagedRecord("vpn.example.com", 300, RecordType.AAAA),
+        ]);
+    }
+
+    [Fact]
+    public async Task UpsertRecordAsync_AaaaRecord_UsesAaaaTypeInLookupAndBody()
+    {
+        var config = BuildConfig(("zone1", 300, true, ["vpn.example.com:aaaa"]));
+        var handler = new StubHandler((request, _) =>
+            request.Method == HttpMethod.Get
+                ? JsonResponse(new { success = true, result = Array.Empty<object>() })
+                : JsonResponse(new { success = true, result = new { id = "new-id" } }));
+        using var httpClient = new HttpClient(handler);
+        var provider = new CloudflareDnsProvider(httpClient, config);
+
+        await provider.UpsertRecordAsync(provider.ManagedRecords[0], "2001:db8::1", CancellationToken.None);
+
+        handler.Requests[0].Uri!.ToString().Should().Contain("/zones/zone1/dns_records?type=AAAA&name=vpn.example.com");
+        handler.Requests[1].Body.Should().Contain("\"type\":\"AAAA\"").And.Contain("\"content\":\"2001:db8::1\"");
+    }
 }

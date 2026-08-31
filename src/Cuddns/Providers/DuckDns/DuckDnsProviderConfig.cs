@@ -26,7 +26,8 @@ public sealed class DuckDnsProviderConfig : IProviderConfig
         for (var recordIndex = 0; recordIndex < Records.Count; recordIndex++)
         {
             var record = Records[recordIndex];
-            if (!Hostname.IsValid(record) || !record.EndsWith(".duckdns.org", StringComparison.OrdinalIgnoreCase))
+            var (name, _) = RecordSpec.Parse(record);
+            if (!Hostname.IsValid(name) || !name.EndsWith(".duckdns.org", StringComparison.OrdinalIgnoreCase))
             {
                 throw new ConfigValidationException(
                     $"providers[duckdns].records[{recordIndex}] ('{record}') must be a valid *.duckdns.org hostname.");

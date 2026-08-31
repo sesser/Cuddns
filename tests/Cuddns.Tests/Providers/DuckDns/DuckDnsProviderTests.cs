@@ -66,4 +66,32 @@ public class DuckDnsProviderTests
 
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
+
+    [Fact]
+    public void ManagedRecords_AaaaSuffix_ParsesNameAndType()
+    {
+        var config = BuildConfig("vpn.duckdns.org:aaaa");
+        var provider = new DuckDnsProvider(new HttpClient(), config);
+
+        provider.ManagedRecords.Should().BeEquivalentTo(
+        [
+            new ManagedRecord("vpn.duckdns.org", 60, RecordType.AAAA),
+        ]);
+    }
+
+    [Fact]
+    public async Task UpsertRecordAsync_AaaaRecord_SendsIpv6Param()
+    {
+        var handler = new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("OK") });
+        using var httpClient = new HttpClient(handler);
+        var provider = new DuckDnsProvider(httpClient, BuildConfig("vpn.duckdns.org:aaaa"));
+
+        await provider.UpsertRecordAsync(provider.ManagedRecords[0], "2001:db8::1", CancellationToken.None);
+
+        var query = handler.LastRequestUri!.Query;
+        query.Should().Contain("domains=vpn");
+        query.Should().Contain($"ipv6={Uri.EscapeDataString("2001:db8::1")}");
+        query.Should().NotContain("&ip=");
+    }
 }

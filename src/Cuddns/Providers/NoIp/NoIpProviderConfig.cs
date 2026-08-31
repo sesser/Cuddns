@@ -33,7 +33,8 @@ public sealed class NoIpProviderConfig : IProviderConfig
         for (var recordIndex = 0; recordIndex < Records.Count; recordIndex++)
         {
             var record = Records[recordIndex];
-            if (!Hostname.IsValid(record))
+            var (name, _) = RecordSpec.Parse(record);
+            if (!Hostname.IsValid(name))
             {
                 throw new ConfigValidationException(
                     $"providers[noip].records[{recordIndex}] ('{record}') must be a valid hostname.");

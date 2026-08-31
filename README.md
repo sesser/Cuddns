@@ -121,10 +121,10 @@ providers:
 ```
 
 - `intervalSeconds` — how often to check the public IP and update records.
-- `enableIpv6` — optional, defaults to `false`. No provider writes `AAAA`
-  records yet, so this is off by default to avoid pointless IPv6 lookups
-  (and log noise) on hosts without IPv6 connectivity. Safe to leave off
-  until a provider you use adds IPv6 support.
+- `enableIpv6` — optional, defaults to `false`. Turn on to look up (and act
+  on) a public IPv6 address; needed for any record configured with the
+  `:aaaa` suffix below. Left off by default to avoid pointless IPv6 lookups
+  (and log noise) on hosts without IPv6 connectivity.
 - `publicIpSources` — optional; which public-IP lookup sources to try, in
   order (the first that answers wins, resolved independently for IPv4 and
   IPv6 when `enableIpv6` is on). Defaults to `[ifconfig, ipify, icanhazip,
@@ -136,12 +136,28 @@ providers:
 - `providers[].type` — which provider implementation to use (`route53`,
   `duckdns`, `cloudflare`, or `noip`).
 
+**Record entries and IPv6**
+
+Every `records` entry is a hostname, optionally suffixed with `:a` or
+`:aaaa` to say which record type it manages — e.g. `vpn.example.com:aaaa`.
+Omitting the suffix defaults to `:a`, so existing configs work unchanged.
+To also manage a AAAA record for a host, add a second entry with `:aaaa` and
+turn on `enableIpv6`:
+
+```yaml
+enableIpv6: true
+# ...
+    records:
+      - vpn.example.com        # A record (same as vpn.example.com:a)
+      - vpn.example.com:aaaa   # AAAA record, same hostname
+```
+
 **route53**
 - `accessKeyId` / `secretAccessKey` — AWS credentials; use `${VAR}`
   placeholders, never commit real values.
 - `zones[].hostedZoneId` — the Route53 hosted zone ID.
 - `zones[].ttl` — TTL applied to updated records.
-- `zones[].records` — the A records to keep pointed at your current public IP.
+- `zones[].records` — the records to keep pointed at your current public IP.
 
 **duckdns**
 - `token` — your DuckDNS account token; use a `${VAR}` placeholder.
@@ -157,7 +173,7 @@ providers:
   "Auto" TTL.
 - `zones[].proxied` — whether records are proxied through Cloudflare (orange
   cloud) rather than DNS-only. Defaults to `false`.
-- `zones[].records` — the A records to keep pointed at your current public IP.
+- `zones[].records` — the records to keep pointed at your current public IP.
 
 **noip**
 - `username` / `password` — your No-IP account credentials; use `${VAR}`
@@ -165,7 +181,7 @@ providers:
 - `records` — one or more hostnames configured under your No-IP account
   (not restricted to a No-IP-owned domain). TTL isn't configurable via the
   update API — No-IP manages it (paid plans can change it from their
-  dashboard).
+  dashboard). AAAA support depends on your No-IP plan/dashboard config.
 
 ## Example `.env`
 

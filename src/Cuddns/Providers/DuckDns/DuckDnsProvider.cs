@@ -12,7 +12,11 @@ public sealed class DuckDnsProvider : IDnsProvider
     {
         _httpClient = httpClient;
         _token = config.Token!;
-        ManagedRecords = config.Records.Select(record => new ManagedRecord(record, DuckDnsTtlSeconds)).ToList();
+        ManagedRecords = config.Records.Select(record =>
+        {
+            var (name, type) = RecordSpec.Parse(record);
+            return new ManagedRecord(name, DuckDnsTtlSeconds, type);
+        }).ToList();
     }
 
     public string ProviderType => "duckdns";
@@ -22,8 +26,11 @@ public sealed class DuckDnsProvider : IDnsProvider
     public async Task UpsertRecordAsync(ManagedRecord record, string ip, CancellationToken cancellationToken)
     {
         var subdomain = record.Name[..^".duckdns.org".Length];
+        // DuckDNS updates each address family via its own query param on the same endpoint;
+        // omitting the other param leaves that family's record untouched.
+        var ipParam = record.Type == RecordType.AAAA ? "ipv6" : "ip";
         var url = $"https://www.duckdns.org/update?domains={Uri.EscapeDataString(subdomain)}" +
-                  $"&token={Uri.EscapeDataString(_token)}&ip={Uri.EscapeDataString(ip)}";
+                  $"&token={Uri.EscapeDataString(_token)}&{ipParam}={Uri.EscapeDataString(ip)}";
 
         var response = await _httpClient.GetStringAsync(url, cancellationToken);
         var result = response.Trim();

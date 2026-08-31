@@ -9,18 +9,18 @@ public sealed class CloudflareDnsProvider : IDnsProvider
 
     private readonly HttpClient _httpClient;
     private readonly string _apiToken;
-    private readonly Dictionary<string, CloudflareZoneConfig> _zoneByRecord;
+    private readonly Dictionary<ManagedRecord, CloudflareZoneConfig> _zoneByRecord;
 
     public CloudflareDnsProvider(HttpClient httpClient, CloudflareProviderConfig config)
     {
         _httpClient = httpClient;
         _apiToken = config.ApiToken!;
-        _zoneByRecord = config.Zones
-            .SelectMany(zone => zone.Records.Select(record => (Record: record, Zone: zone)))
-            .ToDictionary(x => x.Record, x => x.Zone);
-        ManagedRecords = config.Zones
-            .SelectMany(zone => zone.Records.Select(record => new ManagedRecord(record, zone.Ttl)))
+        var parsedRecords = config.Zones
+            .SelectMany(zone => zone.Records.Select(record => (Spec: RecordSpec.Parse(record), Zone: zone)))
+            .Select(x => (Record: new ManagedRecord(x.Spec.Name, x.Zone.Ttl, x.Spec.Type), x.Zone))
             .ToList();
+        _zoneByRecord = parsedRecords.ToDictionary(x => x.Record, x => x.Zone);
+        ManagedRecords = parsedRecords.Select(x => x.Record).ToList();
     }
 
     public string ProviderType => "cloudflare";
@@ -29,10 +29,11 @@ public sealed class CloudflareDnsProvider : IDnsProvider
 
     public async Task UpsertRecordAsync(ManagedRecord record, string ip, CancellationToken cancellationToken)
     {
-        var zone = _zoneByRecord[record.Name];
-        var existingRecordId = await FindExistingRecordIdAsync(zone.ZoneId, record.Name, cancellationToken);
+        var zone = _zoneByRecord[record];
+        var recordTypeName = record.Type.ToString();
+        var existingRecordId = await FindExistingRecordIdAsync(zone.ZoneId, record.Name, recordTypeName, cancellationToken);
 
-        var body = new CloudflareDnsRecordRequest("A", record.Name, ip, zone.Ttl, zone.Proxied);
+        var body = new CloudflareDnsRecordRequest(recordTypeName, record.Name, ip, zone.Ttl, zone.Proxied);
 
         using var request = existingRecordId is null
             ? new HttpRequestMessage(HttpMethod.Post, $"{ApiBaseUrl}/zones/{zone.ZoneId}/dns_records")
@@ -50,9 +51,10 @@ public sealed class CloudflareDnsProvider : IDnsProvider
         }
     }
 
-    private async Task<string?> FindExistingRecordIdAsync(string zoneId, string recordName, CancellationToken cancellationToken)
+    private async Task<string?> FindExistingRecordIdAsync(
+        string zoneId, string recordName, string recordType, CancellationToken cancellationToken)
     {
-        var url = $"{ApiBaseUrl}/zones/{zoneId}/dns_records?type=A&name={Uri.EscapeDataString(recordName)}";
+        var url = $"{ApiBaseUrl}/zones/{zoneId}/dns_records?type={recordType}&name={Uri.EscapeDataString(recordName)}";
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiToken);
 

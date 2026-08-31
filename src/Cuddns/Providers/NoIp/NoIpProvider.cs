@@ -19,7 +19,11 @@ public sealed class NoIpProvider : IDnsProvider
         _httpClient = httpClient;
         var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{config.Username}:{config.Password}"));
         _authHeader = new AuthenticationHeaderValue("Basic", credentials);
-        ManagedRecords = config.Records.Select(record => new ManagedRecord(record, NoIpTtlSeconds)).ToList();
+        ManagedRecords = config.Records.Select(record =>
+        {
+            var (name, type) = RecordSpec.Parse(record);
+            return new ManagedRecord(name, NoIpTtlSeconds, type);
+        }).ToList();
     }
 
     public string ProviderType => "noip";

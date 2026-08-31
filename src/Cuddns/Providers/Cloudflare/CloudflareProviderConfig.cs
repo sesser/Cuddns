@@ -47,7 +47,8 @@ public sealed class CloudflareProviderConfig : IProviderConfig
             for (var recordIndex = 0; recordIndex < zone.Records.Count; recordIndex++)
             {
                 var record = zone.Records[recordIndex];
-                if (!Hostname.IsValid(record))
+                var (name, _) = RecordSpec.Parse(record);
+                if (!Hostname.IsValid(name))
                 {
                     throw new ConfigValidationException(
                         $"{zonePath}.records[{recordIndex}] ('{record}') is not a valid hostname.");

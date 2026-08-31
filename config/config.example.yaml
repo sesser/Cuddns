@@ -5,12 +5,16 @@
 # NOTE: DNS-change detection is driven by a local IP cache (/data/cache.json), not a
 # live DNS lookup. If a record is changed manually outside of Cuddns, Cuddns won't
 # notice until the public IP itself changes again.
+#
+# NOTE: each records entry is a hostname optionally suffixed with ":a" or ":aaaa" to
+# pick the record type (":a" is the default, so plain hostnames are unchanged). List
+# the same hostname twice — once per suffix — to manage both A and AAAA for it.
 
 intervalSeconds: 300
 
-# Optional: attempt public IPv6 lookups at all. Defaults to false — no provider currently
-# writes AAAA records, so leaving this off (the default) avoids pointless network calls and
-# log noise on hosts without IPv6 connectivity.
+# Optional: attempt public IPv6 lookups at all. Defaults to false. Turn this on if any
+# record below uses the ":aaaa" suffix (see records examples further down); otherwise
+# leaving it off avoids pointless network calls and log noise on hosts without IPv6.
 # enableIpv6: false
 
 # Optional: which public-IP lookup sources to try, in order (first one that answers wins,
@@ -31,14 +35,9 @@ providers:
         ttl: 300
         records:
           - example.com
-          - auth.example.com
           - www.example.com
           - vpn.example.com
-          - request.example.com
-          - plex.example.com
-          - listen.example.com
-          - ai.example.com
-          - ha.example.com
+          - vpn.example.com:aaaa
       - hostedZoneId: Z9876543210JIHGFEDCBA
         ttl: 300
         records:

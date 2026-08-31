@@ -68,4 +68,37 @@ public class Route53DnsProviderTests
         change.TTL.Should().Be(60);
         change.ResourceRecords.Single().Value.Should().Be("203.0.113.10");
     }
+
+    [Fact]
+    public void ManagedRecords_AaaaSuffix_ParsesNameAndType()
+    {
+        var config = BuildConfig(("Z1", 300, ["vpn.example.com:aaaa"]));
+
+        var provider = new Cuddns.Providers.Route53.Route53DnsProvider(_client.Object, config);
+
+        provider.ManagedRecords.Should().BeEquivalentTo(
+        [
+            new ManagedRecord("vpn.example.com", 300, RecordType.AAAA),
+        ]);
+    }
+
+    [Fact]
+    public async Task UpsertRecordAsync_AaaaRecord_UsesAaaaRRType()
+    {
+        var config = BuildConfig(("Z1", 300, ["vpn.example.com:aaaa"]));
+
+        ChangeResourceRecordSetsRequest? capturedRequest = null;
+        _client.Setup(c => c.ChangeResourceRecordSetsAsync(
+                It.IsAny<ChangeResourceRecordSetsRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<ChangeResourceRecordSetsRequest, CancellationToken>((req, _) => capturedRequest = req)
+            .ReturnsAsync(new ChangeResourceRecordSetsResponse());
+
+        var provider = new Cuddns.Providers.Route53.Route53DnsProvider(_client.Object, config);
+
+        await provider.UpsertRecordAsync(provider.ManagedRecords[0], "2001:db8::1", CancellationToken.None);
+
+        var change = capturedRequest!.ChangeBatch.Changes.Single().ResourceRecordSet;
+        change.Type.Should().Be(RRType.AAAA);
+        change.ResourceRecords.Single().Value.Should().Be("2001:db8::1");
+    }
 }

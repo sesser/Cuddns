@@ -84,4 +84,31 @@ public class NoIpProviderTests
 
         (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage($"*{code}*");
     }
+
+    [Fact]
+    public void ManagedRecords_AaaaSuffix_ParsesNameAndType()
+    {
+        var config = BuildConfig("vpn.example.com:aaaa");
+        var provider = new NoIpProvider(new HttpClient(), config);
+
+        provider.ManagedRecords.Should().BeEquivalentTo(
+        [
+            new ManagedRecord("vpn.example.com", 300, RecordType.AAAA),
+        ]);
+    }
+
+    [Fact]
+    public async Task UpsertRecordAsync_AaaaRecord_SendsHostnameAndIpv6ViaMyip()
+    {
+        var handler = new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("good 2001:db8::1") });
+        using var httpClient = new HttpClient(handler);
+        var provider = new NoIpProvider(httpClient, BuildConfig("vpn.example.com:aaaa"));
+
+        await provider.UpsertRecordAsync(provider.ManagedRecords[0], "2001:db8::1", CancellationToken.None);
+
+        var query = handler.LastRequest!.RequestUri!.Query;
+        query.Should().Contain("hostname=vpn.example.com");
+        query.Should().Contain($"myip={Uri.EscapeDataString("2001:db8::1")}");
+    }
 }

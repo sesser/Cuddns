@@ -6,17 +6,17 @@ namespace Cuddns.Providers.Route53;
 public sealed class Route53DnsProvider : IDnsProvider
 {
     private readonly IAmazonRoute53 _client;
-    private readonly Dictionary<string, Route53ZoneConfig> _zoneByRecord;
+    private readonly Dictionary<ManagedRecord, Route53ZoneConfig> _zoneByRecord;
 
     public Route53DnsProvider(IAmazonRoute53 client, Route53ProviderConfig config)
     {
         _client = client;
-        _zoneByRecord = config.Zones
-            .SelectMany(zone => zone.Records.Select(record => (Record: record, Zone: zone)))
-            .ToDictionary(x => x.Record, x => x.Zone);
-        ManagedRecords = config.Zones
-            .SelectMany(zone => zone.Records.Select(record => new ManagedRecord(record, zone.Ttl)))
+        var parsedRecords = config.Zones
+            .SelectMany(zone => zone.Records.Select(record => (Spec: RecordSpec.Parse(record), Zone: zone)))
+            .Select(x => (Record: new ManagedRecord(x.Spec.Name, x.Zone.Ttl, x.Spec.Type), x.Zone))
             .ToList();
+        _zoneByRecord = parsedRecords.ToDictionary(x => x.Record, x => x.Zone);
+        ManagedRecords = parsedRecords.Select(x => x.Record).ToList();
     }
 
     public string ProviderType => "route53";
@@ -25,14 +25,15 @@ public sealed class Route53DnsProvider : IDnsProvider
 
     public async Task UpsertRecordAsync(ManagedRecord record, string ip, CancellationToken cancellationToken)
     {
-        var zone = _zoneByRecord[record.Name];
+        var zone = _zoneByRecord[record];
+        var rrType = record.Type == RecordType.AAAA ? RRType.AAAA : RRType.A;
 
         var request = new ChangeResourceRecordSetsRequest
         {
             HostedZoneId = zone.HostedZoneId,
             ChangeBatch = new ChangeBatch
             {
-                Comment = $"Auto-update A record for {record.Name} (Cuddns)",
+                Comment = $"Auto-update {record.Type} record for {record.Name} (Cuddns)",
                 Changes =
                 [
                     new Change
@@ -41,7 +42,7 @@ public sealed class Route53DnsProvider : IDnsProvider
                         ResourceRecordSet = new ResourceRecordSet
                         {
                             Name = record.Name,
-                            Type = RRType.A,
+                            Type = rrType,
                             TTL = record.Ttl,
                             ResourceRecords = [new ResourceRecord { Value = ip }],
                         },

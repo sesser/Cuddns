@@ -295,6 +295,51 @@ public class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
+    public async Task Load_AaaaSuffixedRecord_BindsRawStringUnchanged()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            enableIpv6: true
+            providers:
+              - type: route53
+                accessKeyId: unused
+                secretAccessKey: unused
+                zones:
+                  - hostedZoneId: Z123
+                    ttl: 300
+                    records:
+                      - vpn.example.com:aaaa
+            """);
+
+        var options = CreateSut().Load(ConfigPath, envPath: null);
+
+        var provider = options.Providers[0].Should().BeOfType<Route53ProviderConfig>().Subject;
+        provider.Zones[0].Records.Should().Equal("vpn.example.com:aaaa");
+    }
+
+    [Fact]
+    public async Task Load_UnknownRecordTypeSuffix_ThrowsNamingSuffix()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            providers:
+              - type: route53
+                accessKeyId: unused
+                secretAccessKey: unused
+                zones:
+                  - hostedZoneId: Z123
+                    ttl: 300
+                    records:
+                      - vpn.example.com:cname
+            """);
+
+        var act = () => CreateSut().Load(ConfigPath, envPath: null);
+
+        act.Should().Throw<ConfigValidationException>()
+            .WithMessage("*vpn.example.com:cname*");
+    }
+
+    [Fact]
     public async Task Load_UnknownProviderType_ThrowsNamingType()
     {
         await File.WriteAllTextAsync(ConfigPath, """
