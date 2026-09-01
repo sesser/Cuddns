@@ -340,6 +340,77 @@ public class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
+    public async Task Load_PruneRemovedRecords_DefaultsToFalseForRoute53()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            providers:
+              - type: route53
+                accessKeyId: unused
+                secretAccessKey: unused
+                zones:
+                  - hostedZoneId: Z123
+                    ttl: 300
+                    records:
+                      - a.example.com
+            """);
+
+        var options = CreateSut().Load(ConfigPath, envPath: null);
+
+        var provider = options.Providers[0].Should().BeOfType<Route53ProviderConfig>().Subject;
+        provider.PruneRemovedRecords.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Load_PruneRemovedRecords_BindsCorrectlyForRoute53AndCloudflare()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            providers:
+              - type: route53
+                accessKeyId: unused
+                secretAccessKey: unused
+                pruneRemovedRecords: true
+                zones:
+                  - hostedZoneId: Z123
+                    ttl: 300
+                    records:
+                      - a.example.com
+              - type: cloudflare
+                apiToken: unused
+                pruneRemovedRecords: true
+                zones:
+                  - zoneId: abc123
+                    ttl: 1
+                    records:
+                      - b.example.com
+            """);
+
+        var options = CreateSut().Load(ConfigPath, envPath: null);
+
+        options.Providers[0].Should().BeOfType<Route53ProviderConfig>().Subject.PruneRemovedRecords.Should().BeTrue();
+        options.Providers[1].Should().BeOfType<CloudflareProviderConfig>().Subject.PruneRemovedRecords.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Load_PruneRemovedRecordsOnDuckDns_ThrowsSinceDuckDnsCannotDeleteRecords()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            providers:
+              - type: duckdns
+                token: test-token
+                pruneRemovedRecords: true
+                records:
+                  - home.duckdns.org
+            """);
+
+        var act = () => CreateSut().Load(ConfigPath, envPath: null);
+
+        act.Should().Throw<Exception>();
+    }
+
+    [Fact]
     public async Task Load_UnknownProviderType_ThrowsNamingType()
     {
         await File.WriteAllTextAsync(ConfigPath, """

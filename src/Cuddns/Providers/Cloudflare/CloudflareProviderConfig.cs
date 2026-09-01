@@ -11,6 +11,12 @@ public sealed class CloudflareProviderConfig : IProviderConfig
 
     public List<CloudflareZoneConfig> Zones { get; set; } = [];
 
+    /// <summary>
+    /// When true, a record that disappears from a still-configured zone's <c>records</c>
+    /// list is deleted from Cloudflare too, instead of just being left alone.
+    /// </summary>
+    public bool PruneRemovedRecords { get; set; }
+
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(ApiToken))

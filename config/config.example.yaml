@@ -9,6 +9,12 @@
 # NOTE: each records entry is a hostname optionally suffixed with ":a" or ":aaaa" to
 # pick the record type (":a" is the default, so plain hostnames are unchanged). List
 # the same hostname twice — once per suffix — to manage both A and AAAA for it.
+#
+# NOTE: removing a hostname from records just stops Cuddns from touching it — the
+# record stays at the provider. Route53 and Cloudflare can opt into cleaning up after
+# themselves with "pruneRemovedRecords: true" on the provider (see the commented example on
+# the route53 block below); DuckDNS/No-IP don't support this at all (their APIs have no
+# delete verb), so don't set it there.
 
 intervalSeconds: 300
 
@@ -30,6 +36,7 @@ providers:
     accessKeyId: ${AWS_ACCESS_KEY_ID}
     secretAccessKey: ${AWS_SECRET_ACCESS_KEY}
     region: us-east-1
+    # pruneRemovedRecords: true
     zones:
       - hostedZoneId: Z0123456789ABCDEFGHIJ
         ttl: 300

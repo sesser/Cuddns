@@ -3,18 +3,20 @@ using System.Net.Http.Json;
 
 namespace Cuddns.Providers.Cloudflare;
 
-public sealed class CloudflareDnsProvider : IDnsProvider
+public sealed class CloudflareDnsProvider : IDnsProvider, IDeletableDnsProvider
 {
     private const string ApiBaseUrl = "https://api.cloudflare.com/client/v4";
 
     private readonly HttpClient _httpClient;
     private readonly string _apiToken;
+    private readonly CloudflareProviderConfig _config;
     private readonly Dictionary<ManagedRecord, CloudflareZoneConfig> _zoneByRecord;
 
     public CloudflareDnsProvider(HttpClient httpClient, CloudflareProviderConfig config)
     {
         _httpClient = httpClient;
         _apiToken = config.ApiToken!;
+        _config = config;
         var parsedRecords = config.Zones
             .SelectMany(zone => zone.Records.Select(record => (Spec: RecordSpec.Parse(record), Zone: zone)))
             .Select(x => (Record: new ManagedRecord(x.Spec.Name, x.Zone.Ttl, x.Spec.Type), x.Zone))
@@ -26,6 +28,8 @@ public sealed class CloudflareDnsProvider : IDnsProvider
     public string ProviderType => "cloudflare";
 
     public IReadOnlyList<ManagedRecord> ManagedRecords { get; }
+
+    public bool PruneRemovedRecords => _config.PruneRemovedRecords;
 
     public async Task UpsertRecordAsync(ManagedRecord record, string ip, CancellationToken cancellationToken)
     {
@@ -72,4 +76,36 @@ public sealed class CloudflareDnsProvider : IDnsProvider
 
     private static string DescribeErrors(List<CloudflareApiError>? errors, HttpResponseMessage response) =>
         errors is { Count: > 0 } ? string.Join("; ", errors.Select(e => e.Message)) : $"HTTP {(int)response.StatusCode}";
+
+    public string GetScope(ManagedRecord record) => _zoneByRecord[record].ZoneId;
+
+    public bool OwnsScope(string scope) => _config.Zones.Any(z => z.ZoneId == scope);
+
+    public async Task DeleteRecordAsync(
+        ManagedRecord record, string scope, string lastKnownIp, CancellationToken cancellationToken)
+    {
+        var zone = _config.Zones.First(z => z.ZoneId == scope);
+        var recordTypeName = record.Type.ToString();
+        var existingRecordId = await FindExistingRecordIdAsync(zone.ZoneId, record.Name, recordTypeName, cancellationToken);
+
+        if (existingRecordId is null)
+        {
+            // Already gone at Cloudflare (e.g. deleted manually, or a retry after a prior
+            // successful delete that failed to persist to the cache) — nothing to do.
+            return;
+        }
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Delete, $"{ApiBaseUrl}/zones/{zone.ZoneId}/dns_records/{existingRecordId}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiToken);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var result = await response.Content.ReadFromJsonAsync<CloudflareWriteResponse>(cancellationToken);
+
+        if (result is null || !result.Success)
+        {
+            throw new InvalidOperationException(
+                $"Cloudflare delete for {record.Name} failed: {DescribeErrors(result?.Errors, response)}");
+        }
+    }
 }
