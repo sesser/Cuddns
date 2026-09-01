@@ -153,12 +153,40 @@ enableIpv6: true
       - vpn.example.com:aaaa   # AAAA record, same hostname
 ```
 
+**Deleting removed records**
+
+By default, removing a hostname from `records` just makes Cuddns stop
+touching it — the record (and its last-known value) stays at the provider.
+Route53 and Cloudflare can opt into cleaning up after themselves instead, by
+setting `pruneRemovedRecords: true` on the provider:
+
+```yaml
+providers:
+  - type: route53
+    pruneRemovedRecords: true
+    accessKeyId: ${AWS_ACCESS_KEY_ID}
+    # ...
+```
+
+When a record disappears from a zone's `records` list on a run where
+`pruneRemovedRecords` is on, Cuddns deletes it at the provider on the next run.
+This only works while the *zone* the record belonged to is still configured
+— if you remove the whole `zones` entry (or the whole provider block), Cuddns
+no longer has the credentials/zone mapping needed to reach it and just logs a
+warning instead of deleting anything; remove those manually if needed.
+
+DuckDNS and No-IP don't expose `pruneRemovedRecords` at all — neither's update API
+can delete a record (DuckDNS's `clear=true` only blanks the IP; No-IP host
+removal is dashboard-only), so setting it there is a config error.
+
 **route53**
 - `accessKeyId` / `secretAccessKey` — AWS credentials; use `${VAR}`
   placeholders, never commit real values.
 - `zones[].hostedZoneId` — the Route53 hosted zone ID.
 - `zones[].ttl` — TTL applied to updated records.
 - `zones[].records` — the records to keep pointed at your current public IP.
+- `pruneRemovedRecords` — optional, defaults to `false`. See "Deleting removed
+  records" above.
 
 **duckdns**
 - `token` — your DuckDNS account token; use a `${VAR}` placeholder.
@@ -175,6 +203,8 @@ enableIpv6: true
 - `zones[].proxied` — whether records are proxied through Cloudflare (orange
   cloud) rather than DNS-only. Defaults to `false`.
 - `zones[].records` — the records to keep pointed at your current public IP.
+- `pruneRemovedRecords` — optional, defaults to `false`. See "Deleting removed
+  records" above.
 
 **noip**
 - `username` / `password` — your No-IP account credentials; use `${VAR}`

@@ -15,6 +15,12 @@ public sealed class Route53ProviderConfig : IProviderConfig
 
     public List<Route53ZoneConfig> Zones { get; set; } = [];
 
+    /// <summary>
+    /// When true, a record that disappears from a still-configured zone's <c>records</c>
+    /// list is deleted from Route53 too, instead of just being left alone.
+    /// </summary>
+    public bool PruneRemovedRecords { get; set; }
+
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(AccessKeyId) || string.IsNullOrWhiteSpace(SecretAccessKey))

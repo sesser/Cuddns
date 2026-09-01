@@ -188,4 +188,136 @@ public class DdnsUpdateServiceTests
         second.Verify(p => p.UpsertRecordAsync(
             It.Is<ManagedRecord>(r => r.Name == "b.example.com"), CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    private static Mock<IDeletableDnsProvider> CreateDeletableProvider(
+        string providerType, bool pruneRemovedRecords, string ownedScope, params ManagedRecord[] managedRecords)
+    {
+        var provider = new Mock<IDeletableDnsProvider>();
+        provider.Setup(p => p.ProviderType).Returns(providerType);
+        provider.Setup(p => p.PruneRemovedRecords).Returns(pruneRemovedRecords);
+        provider.Setup(p => p.ManagedRecords).Returns(managedRecords);
+        provider.Setup(p => p.OwnsScope(ownedScope)).Returns(true);
+        return provider;
+    }
+
+    [Fact]
+    public async Task RemovedRecord_PruneRemovedRecordsTrue_DeletesAndPrunesCache()
+    {
+        SetupCache(new Dictionary<string, IpCacheEntry>
+        {
+            ["gone.example.com"] = new IpCacheEntry(CurrentIp, DateTimeOffset.UtcNow.AddHours(-1), "route53", "Z1"),
+            ["still.example.com"] = new IpCacheEntry(CurrentIp, DateTimeOffset.UtcNow.AddHours(-1), "route53", "Z1"),
+        });
+        // At least one record must remain active so the empty-config guardrail (see
+        // EmptyActiveConfigWithNonEmptyCache_SkipsReconciliationEntirely) doesn't kick in —
+        // this mirrors the realistic case of one record among several being removed.
+        var provider = CreateDeletableProvider(
+            "route53", pruneRemovedRecords: true, ownedScope: "Z1", new ManagedRecord("still.example.com", 300));
+
+        await CreateSut(provider.Object).RunOnceAsync(CancellationToken.None);
+
+        provider.Verify(p => p.DeleteRecordAsync(
+            It.Is<ManagedRecord>(r => r.Name == "gone.example.com"), "Z1", CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
+
+        _cacheStore.Verify(c => c.SaveAsync(
+            It.Is<IReadOnlyDictionary<string, IpCacheEntry>>(d => !d.ContainsKey("gone.example.com")),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RemovedRecord_PruneRemovedRecordsFalse_LeavesRecordButPrunesCache()
+    {
+        SetupCache(new Dictionary<string, IpCacheEntry>
+        {
+            ["gone.example.com"] = new IpCacheEntry(CurrentIp, DateTimeOffset.UtcNow.AddHours(-1), "route53", "Z1"),
+            ["still.example.com"] = new IpCacheEntry(CurrentIp, DateTimeOffset.UtcNow.AddHours(-1), "route53", "Z1"),
+        });
+        var provider = CreateDeletableProvider(
+            "route53", pruneRemovedRecords: false, ownedScope: "Z1", new ManagedRecord("still.example.com", 300));
+
+        await CreateSut(provider.Object).RunOnceAsync(CancellationToken.None);
+
+        provider.Verify(p => p.DeleteRecordAsync(
+            It.IsAny<ManagedRecord>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        _cacheStore.Verify(c => c.SaveAsync(
+            It.Is<IReadOnlyDictionary<string, IpCacheEntry>>(d => !d.ContainsKey("gone.example.com")),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RemovedRecord_DeleteThrows_CacheEntryRetainedForRetry()
+    {
+        SetupCache(new Dictionary<string, IpCacheEntry>
+        {
+            ["gone.example.com"] = new IpCacheEntry(CurrentIp, DateTimeOffset.UtcNow.AddHours(-1), "route53", "Z1"),
+            ["still.example.com"] = new IpCacheEntry(CurrentIp, DateTimeOffset.UtcNow.AddHours(-1), "route53", "Z1"),
+        });
+        var provider = CreateDeletableProvider(
+            "route53", pruneRemovedRecords: true, ownedScope: "Z1", new ManagedRecord("still.example.com", 300));
+        provider.Setup(p => p.DeleteRecordAsync(
+                It.IsAny<ManagedRecord>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+
+        await CreateSut(provider.Object).RunOnceAsync(CancellationToken.None);
+
+        _cacheStore.Verify(c => c.SaveAsync(
+            It.Is<IReadOnlyDictionary<string, IpCacheEntry>>(d =>
+                d.ContainsKey("gone.example.com") && d["gone.example.com"].Ip == CurrentIp),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RemovedRecord_NoOwningProviderConfigured_PrunesCacheWithoutDeleting()
+    {
+        // The whole zone/provider that used to own this record is gone from config, so no
+        // configured instance recognizes the scope — nothing left to call delete with.
+        SetupCache(new Dictionary<string, IpCacheEntry>
+        {
+            ["gone.example.com"] = new IpCacheEntry(CurrentIp, DateTimeOffset.UtcNow.AddHours(-1), "route53", "Z1"),
+            ["still.example.com"] = new IpCacheEntry(CurrentIp, DateTimeOffset.UtcNow.AddHours(-1), "route53", "Z2"),
+        });
+        var stillAround = CreateDeletableProvider(
+            "route53", pruneRemovedRecords: true, ownedScope: "Z2", new ManagedRecord("still.example.com", 300));
+
+        await CreateSut(stillAround.Object).RunOnceAsync(CancellationToken.None);
+
+        stillAround.Verify(p => p.DeleteRecordAsync(
+            It.IsAny<ManagedRecord>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        _cacheStore.Verify(c => c.SaveAsync(
+            It.Is<IReadOnlyDictionary<string, IpCacheEntry>>(d => !d.ContainsKey("gone.example.com")),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task EmptyActiveConfigWithNonEmptyCache_SkipsReconciliationEntirely()
+    {
+        SetupCache(new Dictionary<string, IpCacheEntry>
+        {
+            ["gone.example.com"] = new IpCacheEntry(CurrentIp, DateTimeOffset.UtcNow.AddHours(-1), "route53", "Z1"),
+        });
+
+        await CreateSut().RunOnceAsync(CancellationToken.None);
+
+        _cacheStore.Verify(c => c.SaveAsync(
+            It.Is<IReadOnlyDictionary<string, IpCacheEntry>>(d => d.ContainsKey("gone.example.com")),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpsertRecordAsync_OnDeletableProvider_PersistsProviderTypeAndScopeInCache()
+    {
+        SetupCache([]);
+        var provider = CreateDeletableProvider(
+            "route53", pruneRemovedRecords: false, ownedScope: "Z1", new ManagedRecord("a.example.com", 300));
+        provider.Setup(p => p.GetScope(It.IsAny<ManagedRecord>())).Returns("Z1");
+
+        await CreateSut(provider.Object).RunOnceAsync(CancellationToken.None);
+
+        _cacheStore.Verify(c => c.SaveAsync(
+            It.Is<IReadOnlyDictionary<string, IpCacheEntry>>(d =>
+                d["a.example.com"].ProviderType == "route53" && d["a.example.com"].Scope == "Z1"),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
 }

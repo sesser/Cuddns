@@ -17,6 +17,8 @@ public sealed class DdnsUpdateService(
         var cache = await cacheStore.LoadAsync(cancellationToken);
         var updated = new Dictionary<string, IpCacheEntry>(cache);
 
+        await ReconcileRemovedRecordsAsync(cache, updated, cancellationToken);
+
         foreach (var provider in dnsProviders)
         {
             foreach (var record in provider.ManagedRecords)
@@ -41,7 +43,8 @@ public sealed class DdnsUpdateService(
                 try
                 {
                     await provider.UpsertRecordAsync(record, currentIp, cancellationToken);
-                    updated[cacheKey] = new IpCacheEntry(currentIp, DateTimeOffset.UtcNow);
+                    var scope = (provider as IDeletableDnsProvider)?.GetScope(record) ?? "";
+                    updated[cacheKey] = new IpCacheEntry(currentIp, DateTimeOffset.UtcNow, provider.ProviderType, scope);
                     logger.LogInformation("Updated {Record} ({Type}) to {Ip}", record.Name, record.Type, currentIp);
                 }
                 catch (Exception ex)
@@ -59,4 +62,68 @@ public sealed class DdnsUpdateService(
     // entries for the same hostname need a distinct key to track independently.
     private static string CacheKey(ManagedRecord record) =>
         record.Type == RecordType.A ? record.Name : $"{record.Name}|{record.Type}";
+
+    /// <summary>
+    /// Deletes (or otherwise reconciles) cache entries for records that were removed from
+    /// config since the last run — see <see cref="IDeletableDnsProvider"/> for the opt-in
+    /// deletion contract and its boundaries.
+    /// </summary>
+    private async Task ReconcileRemovedRecordsAsync(
+        IReadOnlyDictionary<string, IpCacheEntry> cache,
+        Dictionary<string, IpCacheEntry> updated,
+        CancellationToken cancellationToken)
+    {
+        var activeKeys = dnsProviders
+            .SelectMany(provider => provider.ManagedRecords.Select(CacheKey))
+            .ToHashSet();
+
+        if (cache.Count > 0 && activeKeys.Count == 0)
+        {
+            logger.LogWarning(
+                "Loaded config has no managed records but cache.json is not empty; skipping delete " +
+                "reconciliation this run — check config.yaml before the next run.");
+            return;
+        }
+
+        foreach (var (key, entry) in cache)
+        {
+            if (activeKeys.Contains(key))
+            {
+                continue;
+            }
+
+            var owner = dnsProviders
+                .OfType<IDeletableDnsProvider>()
+                .FirstOrDefault(p => p.ProviderType == entry.ProviderType && p.OwnsScope(entry.Scope));
+
+            if (owner is null || !owner.PruneRemovedRecords)
+            {
+                logger.LogInformation(
+                    "{Record} is no longer configured; leaving it at the provider " +
+                    "(pruneRemovedRecords is off, or its provider/zone is no longer configured).", key);
+                updated.Remove(key);
+                continue;
+            }
+
+            var record = ParseCacheKey(key);
+            try
+            {
+                await owner.DeleteRecordAsync(record, entry.Scope, entry.Ip, cancellationToken);
+                logger.LogInformation("Deleted {Record} ({Type}) from {ProviderType} (removed from config)", record.Name, record.Type, entry.ProviderType);
+                updated.Remove(key);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed deleting {Record} ({Type}); will retry next run", record.Name, record.Type);
+            }
+        }
+    }
+
+    private static ManagedRecord ParseCacheKey(string key)
+    {
+        var separatorIndex = key.IndexOf('|');
+        return separatorIndex < 0
+            ? new ManagedRecord(key, 0, RecordType.A)
+            : new ManagedRecord(key[..separatorIndex], 0, Enum.Parse<RecordType>(key[(separatorIndex + 1)..]));
+    }
 }
