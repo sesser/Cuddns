@@ -1,4 +1,6 @@
+using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text;
 using OtpNet;
 
@@ -18,6 +20,12 @@ public sealed class MiabDnsProvider : IDnsProvider, IDeletableDnsProvider
     // pyotp's defaults (SHA1, 6 digits, 30s step) — matched explicitly here rather than
     // relying on this library's defaults staying the same across versions.
     private readonly Totp? _totp;
+
+    // Cached session credential from a prior /login call — see GetAuthHeaderAsync. MiaB
+    // rejects a repeated TOTP code as a replay, so a fresh code can only be spent once per
+    // process; logging in once and reusing the resulting session key sidesteps that entirely
+    // instead of needing a new TOTP code for every record update.
+    private AuthenticationHeaderValue? _sessionAuthHeader;
 
     public MiabDnsProvider(HttpClient httpClient, MiabProviderConfig config)
     {
@@ -62,29 +70,83 @@ public sealed class MiabDnsProvider : IDnsProvider, IDeletableDnsProvider
         var rtype = record.Type == RecordType.AAAA ? "aaaa" : "a";
         var url = $"https://{_hostname}/admin/dns/custom/{Uri.EscapeDataString(record.Name)}/{rtype}";
 
+        using var response = await SendAuthenticatedAsync(method, url, value, cancellationToken);
+        var result = (await response.Content.ReadAsStringAsync(cancellationToken)).Trim();
+
+        // MiaB's success body is a free-form confirmation message (e.g. "updated DNS:
+        // example.com"), not a fixed string — the HTTP status is the only reliable signal.
+        if (!response.IsSuccessStatusCode)
+        {
+            var action = method == HttpMethod.Delete ? "delete" : "update";
+            throw new InvalidOperationException($"MiaB {action} for {record.Name} failed: '{Truncate(result)}'");
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendAuthenticatedAsync(
+        HttpMethod method, string url, string body, CancellationToken cancellationToken)
+    {
+        var authHeader = await GetAuthHeaderAsync(cancellationToken);
+        var response = await SendOnceAsync(method, url, body, authHeader, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized && _totp is not null)
+        {
+            // The cached session likely expired or was invalidated server-side (MiaB keeps
+            // sessions in memory, so they don't survive a daemon restart) — log in again for
+            // a fresh one and retry exactly once.
+            response.Dispose();
+            _sessionAuthHeader = null;
+            authHeader = await GetAuthHeaderAsync(cancellationToken);
+            response = await SendOnceAsync(method, url, body, authHeader, cancellationToken);
+        }
+
+        return response;
+    }
+
+    private async Task<HttpResponseMessage> SendOnceAsync(
+        HttpMethod method, string url, string body, AuthenticationHeaderValue authHeader, CancellationToken cancellationToken)
+    {
         using var request = new HttpRequestMessage(method, url)
         {
             // The API defaults A/AAAA to the caller's own remote address when the request
             // body is empty — send the value explicitly instead, since the box isn't
             // necessarily what sees the same public address Cuddns did.
-            Content = new StringContent(value),
+            Content = new StringContent(body),
         };
-        request.Headers.Authorization = _authHeader;
-        if (_totp is not null)
+        request.Headers.Authorization = authHeader;
+        return await _httpClient.SendAsync(request, cancellationToken);
+    }
+
+    private async Task<AuthenticationHeaderValue> GetAuthHeaderAsync(CancellationToken cancellationToken)
+    {
+        if (_totp is null)
         {
-            // MiaB rejects every request from a 2FA-enabled account with "missing-totp-token"
-            // unless the current code is also sent this way — Basic auth alone isn't enough.
-            request.Headers.Add("x-auth-token", _totp.ComputeTotp());
+            return _authHeader;
         }
+
+        _sessionAuthHeader ??= await LoginAsync(cancellationToken);
+        return _sessionAuthHeader;
+    }
+
+    private async Task<AuthenticationHeaderValue> LoginAsync(CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"https://{_hostname}/login");
+        request.Headers.Authorization = _authHeader;
+        // Spent once here rather than on every DNS call — MiaB rejects a TOTP code reused
+        // within the same 30s window as a replay, which a per-request code would hit as
+        // soon as two records update in quick succession.
+        request.Headers.Add("x-auth-token", _totp!.ComputeTotp());
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
-        var result = (await response.Content.ReadAsStringAsync(cancellationToken)).Trim();
+        var login = await response.Content.ReadFromJsonAsync<MiabLoginResponse>(cancellationToken);
 
-        if (!response.IsSuccessStatusCode || !result.Equals("OK", StringComparison.Ordinal))
+        if (login is null || login.Status != "ok" || string.IsNullOrEmpty(login.ApiKey))
         {
-            var action = method == HttpMethod.Delete ? "delete" : "update";
-            throw new InvalidOperationException($"MiaB {action} for {record.Name} failed: '{Truncate(result)}'");
+            throw new InvalidOperationException(
+                $"MiaB login failed: '{Truncate(login?.Reason ?? login?.Status ?? "unknown error")}'");
         }
+
+        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{login.ApiKey}:"));
+        return new AuthenticationHeaderValue("Basic", credentials);
     }
 
     private static string Truncate(string value) => value.Length <= 200 ? value : value[..200] + "...";
