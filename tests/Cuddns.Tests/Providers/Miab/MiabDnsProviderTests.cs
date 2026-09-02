@@ -217,7 +217,7 @@ public class MiabDnsProviderTests
         config.TotpSecret = TotpSecret;
         var expectedTotpCode = new Totp(Base32Encoding.ToBytes(TotpSecret)).ComputeTotp();
         var handler = new StubHandler((request, _) =>
-            request.RequestUri!.AbsolutePath == "/login" ? LoginResponse("session-api-key") : OkResponse());
+            request.RequestUri!.AbsolutePath == "/admin/login" ? LoginResponse("session-api-key") : OkResponse());
         using var httpClient = new HttpClient(handler);
         var provider = new MiabDnsProvider(httpClient, config);
 
@@ -227,7 +227,7 @@ public class MiabDnsProviderTests
 
         var loginRequest = handler.Requests[0];
         loginRequest.Method.Should().Be(HttpMethod.Post);
-        loginRequest.RequestUri!.ToString().Should().Be("https://box.example.com/login");
+        loginRequest.RequestUri!.ToString().Should().Be("https://box.example.com/admin/login");
         loginRequest.Headers.Authorization!.Scheme.Should().Be("Basic");
         loginRequest.Headers.GetValues("x-auth-token").Should().ContainSingle().Which.Should().Be(expectedTotpCode);
 
@@ -245,7 +245,7 @@ public class MiabDnsProviderTests
         var config = BuildConfig("a.example.com", "b.example.com");
         config.TotpSecret = TotpSecret;
         var handler = new StubHandler((request, _) =>
-            request.RequestUri!.AbsolutePath == "/login" ? LoginResponse("session-api-key") : OkResponse());
+            request.RequestUri!.AbsolutePath == "/admin/login" ? LoginResponse("session-api-key") : OkResponse());
         using var httpClient = new HttpClient(handler);
         var provider = new MiabDnsProvider(httpClient, config);
 
@@ -253,7 +253,7 @@ public class MiabDnsProviderTests
         await provider.UpsertRecordAsync(provider.ManagedRecords[1], "203.0.113.10", CancellationToken.None);
 
         handler.Requests.Should().HaveCount(3);
-        handler.Requests.Count(r => r.RequestUri!.AbsolutePath == "/login").Should().Be(1);
+        handler.Requests.Count(r => r.RequestUri!.AbsolutePath == "/admin/login").Should().Be(1);
     }
 
     [Fact]
@@ -264,7 +264,7 @@ public class MiabDnsProviderTests
         var dnsCallCount = 0;
         var handler = new StubHandler((request, _) =>
         {
-            if (request.RequestUri!.AbsolutePath == "/login")
+            if (request.RequestUri!.AbsolutePath == "/admin/login")
             {
                 return LoginResponse("session-api-key");
             }
@@ -281,7 +281,7 @@ public class MiabDnsProviderTests
 
         await act.Should().NotThrowAsync();
         dnsCallCount.Should().Be(2);
-        handler.Requests.Count(r => r.RequestUri!.AbsolutePath == "/login").Should().Be(2);
+        handler.Requests.Count(r => r.RequestUri!.AbsolutePath == "/admin/login").Should().Be(2);
     }
 
     [Fact]
@@ -296,5 +296,22 @@ public class MiabDnsProviderTests
         var act = () => provider.UpsertRecordAsync(provider.ManagedRecords[0], "203.0.113.10", CancellationToken.None);
 
         (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage("*Incorrect email address or password.*");
+    }
+
+    [Fact]
+    public async Task UpsertRecordAsync_LoginReturnsNonJsonBody_ThrowsWithRawBodyRatherThanCrashing()
+    {
+        // Regression test: a wrong login URL (or a proxy/maintenance page in front of the
+        // box) returns an HTML page instead of JSON — this must surface as a clear error,
+        // not an unhandled JsonException.
+        var config = BuildConfig("home.example.com");
+        config.TotpSecret = TotpSecret;
+        using var httpClient = new HttpClient(new StubHandler(
+            (_, _) => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<!DOCTYPE html><html>Not Found</html>") }));
+        var provider = new MiabDnsProvider(httpClient, config);
+
+        var act = () => provider.UpsertRecordAsync(provider.ManagedRecords[0], "203.0.113.10", CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage("*<!DOCTYPE html>*");
     }
 }

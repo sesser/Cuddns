@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using OtpNet;
 
 namespace Cuddns.Providers.Miab;
@@ -129,7 +129,10 @@ public sealed class MiabDnsProvider : IDnsProvider, IDeletableDnsProvider
 
     private async Task<AuthenticationHeaderValue> LoginAsync(CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"https://{_hostname}/login");
+        // The public API is reverse-proxied under /admin/ (nginx strips that prefix before
+        // forwarding to the management daemon) — same as the /admin/dns/custom/... path
+        // used elsewhere in this file; a bare /login never reaches the daemon at all.
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"https://{_hostname}/admin/login");
         request.Headers.Authorization = _authHeader;
         // Spent once here rather than on every DNS call — MiaB rejects a TOTP code reused
         // within the same 30s window as a replay, which a per-request code would hit as
@@ -137,12 +140,25 @@ public sealed class MiabDnsProvider : IDnsProvider, IDeletableDnsProvider
         request.Headers.Add("x-auth-token", _totp!.ComputeTotp());
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
-        var login = await response.Content.ReadFromJsonAsync<MiabLoginResponse>(cancellationToken);
+        var rawBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        MiabLoginResponse? login;
+        try
+        {
+            login = JsonSerializer.Deserialize<MiabLoginResponse>(rawBody);
+        }
+        catch (JsonException)
+        {
+            // Not JSON at all — e.g. an HTML error/maintenance page from a proxy in front of
+            // the box. Surface the raw body rather than a raw deserialization stack trace, so
+            // a wrong URL or an outage is obvious from the log line instead of a JsonException.
+            login = null;
+        }
 
         if (login is null || login.Status != "ok" || string.IsNullOrEmpty(login.ApiKey))
         {
             throw new InvalidOperationException(
-                $"MiaB login failed: '{Truncate(login?.Reason ?? login?.Status ?? "unknown error")}'");
+                $"MiaB login failed: '{Truncate(login?.Reason ?? login?.Status ?? rawBody)}'");
         }
 
         var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{login.ApiKey}:"));
