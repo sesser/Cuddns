@@ -243,8 +243,12 @@ config error.
   on, in which case MiaB's API rejects every request (even with the right
   username/password) unless a current TOTP code also comes along. Use the
   base32 secret shown when you set up 2FA (the same one encoded in its setup
-  QR code) — not a live 6-digit code — and Cuddns computes the current code
-  itself on every request; use a `${VAR}` placeholder.
+  QR code) — not a live 6-digit code; use a `${VAR}` placeholder. Cuddns logs
+  in once (spending one TOTP code) and reuses the resulting session for
+  further updates that run — sending a fresh code with every single record
+  update, instead, would get every update but the first rejected as a replay
+  by MiaB's own anti-reuse check. A session is re-established automatically
+  if the box ever rejects it (e.g. after the MiaB daemon restarts).
 
 ## Example `.env`
 
