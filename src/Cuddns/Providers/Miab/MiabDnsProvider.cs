@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text;
+using OtpNet;
 
 namespace Cuddns.Providers.Miab;
 
@@ -13,12 +14,20 @@ public sealed class MiabDnsProvider : IDnsProvider, IDeletableDnsProvider
     private readonly string _hostname;
     private readonly AuthenticationHeaderValue _authHeader;
 
+    // Set only when the admin account has 2FA turned on. MiaB's own TOTP setup uses
+    // pyotp's defaults (SHA1, 6 digits, 30s step) — matched explicitly here rather than
+    // relying on this library's defaults staying the same across versions.
+    private readonly Totp? _totp;
+
     public MiabDnsProvider(HttpClient httpClient, MiabProviderConfig config)
     {
         _httpClient = httpClient;
         _hostname = config.Hostname!;
         var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{config.Username}:{config.Password}"));
         _authHeader = new AuthenticationHeaderValue("Basic", credentials);
+        _totp = string.IsNullOrWhiteSpace(config.TotpSecret)
+            ? null
+            : new Totp(Base32Encoding.ToBytes(config.TotpSecret), step: 30, mode: OtpHashMode.Sha1, totpSize: 6);
         PruneRemovedRecords = config.PruneRemovedRecords;
         ManagedRecords = config.Records.Select(record =>
         {
@@ -61,6 +70,12 @@ public sealed class MiabDnsProvider : IDnsProvider, IDeletableDnsProvider
             Content = new StringContent(value),
         };
         request.Headers.Authorization = _authHeader;
+        if (_totp is not null)
+        {
+            // MiaB rejects every request from a 2FA-enabled account with "missing-totp-token"
+            // unless the current code is also sent this way — Basic auth alone isn't enough.
+            request.Headers.Add("x-auth-token", _totp.ComputeTotp());
+        }
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var result = (await response.Content.ReadAsStringAsync(cancellationToken)).Trim();

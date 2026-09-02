@@ -239,6 +239,12 @@ config error.
 - `pruneRemovedRecords` — optional, defaults to `false`. See "Deleting removed
   records" above. Deletes are scoped to the record's last-known value, so a
   manually-added round-robin entry for the same hostname is left alone.
+- `totpSecret` — optional. Required only if the admin account has 2FA turned
+  on, in which case MiaB's API rejects every request (even with the right
+  username/password) unless a current TOTP code also comes along. Use the
+  base32 secret shown when you set up 2FA (the same one encoded in its setup
+  QR code) — not a live 6-digit code — and Cuddns computes the current code
+  itself on every request; use a `${VAR}` placeholder.
 
 ## Example `.env`
 
@@ -252,6 +258,7 @@ NOIP_PASSWORD=your-noip-password
 MIAB_HOSTNAME=box.example.com
 MIAB_USERNAME=admin@example.com
 MIAB_PASSWORD=your-miab-password
+MIAB_TOTP_SECRET=your-miab-totp-secret
 ```
 
 Any `${VAR_NAME}` in `config.yaml` is resolved from this file first, then

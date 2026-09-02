@@ -77,5 +77,8 @@ providers:
     username: ${MIAB_USERNAME}
     password: ${MIAB_PASSWORD}
     # pruneRemovedRecords: true
+    # Only needed if this admin account has 2FA enabled — the base32 secret from its
+    # setup QR code, not a live 6-digit code:
+    # totpSecret: ${MIAB_TOTP_SECRET}
     records:
       - home.example.com

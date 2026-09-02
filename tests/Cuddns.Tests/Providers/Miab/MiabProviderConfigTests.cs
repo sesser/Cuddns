@@ -79,4 +79,37 @@ public class MiabProviderConfigTests
 
         act.Should().Throw<ConfigValidationException>().WithMessage("*records[0]*");
     }
+
+    [Fact]
+    public void Validate_NoTotpSecret_DoesNotThrow()
+    {
+        var config = BuildConfig();
+        config.TotpSecret = null;
+
+        var act = () => config.Validate();
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Validate_ValidTotpSecret_DoesNotThrow()
+    {
+        var config = BuildConfig();
+        config.TotpSecret = "JBSWY3DPEHPK3PXP";
+
+        var act = () => config.Validate();
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Validate_InvalidTotpSecret_Throws()
+    {
+        var config = BuildConfig();
+        config.TotpSecret = "not-valid-base32!!!";
+
+        var act = () => config.Validate();
+
+        act.Should().Throw<ConfigValidationException>().WithMessage("*totpSecret*");
+    }
 }
