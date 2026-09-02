@@ -3,6 +3,7 @@ using System.Net.Http;
 using Cuddns.Providers;
 using Cuddns.Providers.Miab;
 using FluentAssertions;
+using OtpNet;
 
 namespace Cuddns.Tests.Providers.Miab;
 
@@ -33,6 +34,8 @@ public class MiabDnsProviderTests
             Records = [.. records],
         };
     }
+
+    private const string TotpSecret = "JBSWY3DPEHPK3PXP";
 
     [Fact]
     public void ManagedRecords_ReflectsConfiguredRecords()
@@ -170,5 +173,48 @@ public class MiabDnsProviderTests
         var act = () => provider.DeleteRecordAsync(removedRecord, "box.example.com", "203.0.113.10", CancellationToken.None);
 
         (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage("*boom*");
+    }
+
+    [Fact]
+    public async Task UpsertRecordAsync_NoTotpSecretConfigured_SendsNoAuthTokenHeader()
+    {
+        var handler = new StubHandler((_, _) => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("OK") });
+        using var httpClient = new HttpClient(handler);
+        var provider = new MiabDnsProvider(httpClient, BuildConfig("home.example.com"));
+
+        await provider.UpsertRecordAsync(provider.ManagedRecords[0], "203.0.113.10", CancellationToken.None);
+
+        handler.LastRequest!.Headers.Contains("x-auth-token").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task UpsertRecordAsync_TotpSecretConfigured_SendsCurrentTotpCodeAsAuthTokenHeader()
+    {
+        var config = BuildConfig("home.example.com");
+        config.TotpSecret = TotpSecret;
+        var handler = new StubHandler((_, _) => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("OK") });
+        using var httpClient = new HttpClient(handler);
+        var provider = new MiabDnsProvider(httpClient, config);
+        var expectedCode = new Totp(Base32Encoding.ToBytes(TotpSecret)).ComputeTotp();
+
+        await provider.UpsertRecordAsync(provider.ManagedRecords[0], "203.0.113.10", CancellationToken.None);
+
+        handler.LastRequest!.Headers.GetValues("x-auth-token").Should().ContainSingle().Which.Should().Be(expectedCode);
+    }
+
+    [Fact]
+    public async Task DeleteRecordAsync_TotpSecretConfigured_SendsCurrentTotpCodeAsAuthTokenHeader()
+    {
+        var config = BuildConfig("home.example.com");
+        config.TotpSecret = TotpSecret;
+        var handler = new StubHandler((_, _) => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("OK") });
+        using var httpClient = new HttpClient(handler);
+        var provider = new MiabDnsProvider(httpClient, config);
+        var expectedCode = new Totp(Base32Encoding.ToBytes(TotpSecret)).ComputeTotp();
+        var removedRecord = new ManagedRecord("gone.example.com", 0);
+
+        await provider.DeleteRecordAsync(removedRecord, "box.example.com", "203.0.113.10", CancellationToken.None);
+
+        handler.LastRequest!.Headers.GetValues("x-auth-token").Should().ContainSingle().Which.Should().Be(expectedCode);
     }
 }

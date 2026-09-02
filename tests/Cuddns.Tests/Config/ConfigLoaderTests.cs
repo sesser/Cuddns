@@ -226,6 +226,28 @@ public class ConfigLoaderTests : IDisposable
         provider.Username.Should().Be("admin@example.com");
         provider.Password.Should().Be("test-pass");
         provider.Records.Should().Equal("home.example.com");
+        provider.TotpSecret.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Load_MiabProviderWithTotpSecret_BindsCorrectly()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            providers:
+              - type: miab
+                hostname: box.example.com
+                username: admin@example.com
+                password: test-pass
+                totpSecret: JBSWY3DPEHPK3PXP
+                records:
+                  - home.example.com
+            """);
+
+        var options = CreateSut().Load(ConfigPath, envPath: null);
+
+        var provider = options.Providers[0].Should().BeOfType<MiabProviderConfig>().Subject;
+        provider.TotpSecret.Should().Be("JBSWY3DPEHPK3PXP");
     }
 
     [Fact]
