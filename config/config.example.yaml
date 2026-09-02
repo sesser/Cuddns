@@ -71,3 +71,10 @@ providers:
     password: ${NOIP_PASSWORD}
     records:
       - home.example.com
+
+  - type: miab
+    hostname: ${MIAB_HOSTNAME}
+    username: ${MIAB_USERNAME}
+    password: ${MIAB_PASSWORD}
+    records:
+      - home.example.com
