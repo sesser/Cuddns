@@ -3,6 +3,7 @@ using Cuddns.Options;
 using Cuddns.Providers;
 using Cuddns.Providers.Cloudflare;
 using Cuddns.Providers.DuckDns;
+using Cuddns.Providers.Miab;
 using Cuddns.Providers.NoIp;
 using Cuddns.Providers.Route53;
 using FluentAssertions;
@@ -20,6 +21,7 @@ public class ConfigLoaderTests : IDisposable
         new DuckDnsProviderFactory(NullLogger<DuckDnsProviderFactory>.Instance),
         new CloudflareDnsProviderFactory(NullLogger<CloudflareDnsProviderFactory>.Instance),
         new NoIpProviderFactory(NullLogger<NoIpProviderFactory>.Instance),
+        new MiabDnsProviderFactory(NullLogger<MiabDnsProviderFactory>.Instance),
     ];
 
     private string ConfigPath => Path.Combine(_tempDir, "config.yaml");
@@ -204,6 +206,29 @@ public class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
+    public async Task Load_MiabProvider_BindsCorrectly()
+    {
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            providers:
+              - type: miab
+                hostname: box.example.com
+                username: admin@example.com
+                password: test-pass
+                records:
+                  - home.example.com
+            """);
+
+        var options = CreateSut().Load(ConfigPath, envPath: null);
+
+        var provider = options.Providers[0].Should().BeOfType<MiabProviderConfig>().Subject;
+        provider.Hostname.Should().Be("box.example.com");
+        provider.Username.Should().Be("admin@example.com");
+        provider.Password.Should().Be("test-pass");
+        provider.Records.Should().Equal("home.example.com");
+    }
+
+    [Fact]
     public async Task Load_EnableIpv6_DefaultsToFalse()
     {
         await File.WriteAllTextAsync(ConfigPath, """
@@ -362,7 +387,7 @@ public class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public async Task Load_PruneRemovedRecords_BindsCorrectlyForRoute53AndCloudflare()
+    public async Task Load_PruneRemovedRecords_BindsCorrectlyForRoute53CloudflareAndMiab()
     {
         await File.WriteAllTextAsync(ConfigPath, """
             intervalSeconds: 60
@@ -384,12 +409,20 @@ public class ConfigLoaderTests : IDisposable
                     ttl: 1
                     records:
                       - b.example.com
+              - type: miab
+                hostname: box.example.com
+                username: admin@example.com
+                password: test-pass
+                pruneRemovedRecords: true
+                records:
+                  - c.example.com
             """);
 
         var options = CreateSut().Load(ConfigPath, envPath: null);
 
         options.Providers[0].Should().BeOfType<Route53ProviderConfig>().Subject.PruneRemovedRecords.Should().BeTrue();
         options.Providers[1].Should().BeOfType<CloudflareProviderConfig>().Subject.PruneRemovedRecords.Should().BeTrue();
+        options.Providers[2].Should().BeOfType<MiabProviderConfig>().Subject.PruneRemovedRecords.Should().BeTrue();
     }
 
     [Fact]

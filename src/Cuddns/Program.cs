@@ -6,6 +6,7 @@ using Cuddns.Orchestration;
 using Cuddns.Providers;
 using Cuddns.Providers.Cloudflare;
 using Cuddns.Providers.DuckDns;
+using Cuddns.Providers.Miab;
 using Cuddns.Providers.NoIp;
 using Cuddns.Providers.Route53;
 using Cuddns.PublicIp;
@@ -32,6 +33,7 @@ IDnsProviderFactory[] catalog =
     new DuckDnsProviderFactory(startupLoggerFactory.CreateLogger<DuckDnsProviderFactory>()),
     new CloudflareDnsProviderFactory(startupLoggerFactory.CreateLogger<CloudflareDnsProviderFactory>()),
     new NoIpProviderFactory(startupLoggerFactory.CreateLogger<NoIpProviderFactory>()),
+    new MiabDnsProviderFactory(startupLoggerFactory.CreateLogger<MiabDnsProviderFactory>()),
 ];
 startupLogger.LogInformation("Available provider types: {ProviderTypes}", string.Join(", ", catalog.Select(f => f.ProviderType)));
 

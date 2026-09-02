@@ -3,7 +3,7 @@
 
 A small, self-hosted Dynamic DNS updater. It runs on a schedule, checks your
 public IP, and updates DNS records through a pluggable provider (Route53,
-DuckDNS, Cloudflare, and No-IP today) — only when the IP actually changed,
+DuckDNS, Cloudflare, No-IP, and Mail-in-a-Box today) — only when the IP actually changed,
 tracked via a local cache so it doesn't hammer your DNS provider's API every
 run.
 Built to replace a pile of personal `update-r53` bash scripts with something
@@ -20,7 +20,8 @@ configurable, testable, and easy to run in a homelab.
 - **IP caching** — skips the update (and the API call) when the public IP
   hasn't changed since last run.
 - **Plugin-style providers** — ships with AWS Route53, DuckDNS, Cloudflare,
-  and No-IP; more can be added without touching the core update loop.
+  No-IP, and Mail-in-a-Box; more can be added without touching the core
+  update loop.
 - **YAML config with secret substitution** — `${VAR_NAME}` placeholders
   resolved from the environment or a `.env` file, so credentials never live
   in the config file itself.
@@ -119,6 +120,13 @@ providers:
     password: ${NOIP_PASSWORD}
     records:
       - home.example.com
+
+  - type: miab
+    hostname: ${MIAB_HOSTNAME}
+    username: ${MIAB_USERNAME}
+    password: ${MIAB_PASSWORD}
+    records:
+      - home.example.com
 ```
 
 - `intervalSeconds` — how often to check the public IP and update records.
@@ -135,7 +143,7 @@ providers:
   with no IPv6 connectivity just gets `null` back for IPv6 and any `AAAA`
   records are skipped that run rather than failing the whole update.
 - `providers[].type` — which provider implementation to use (`route53`,
-  `duckdns`, `cloudflare`, or `noip`).
+  `duckdns`, `cloudflare`, `noip`, or `miab`).
 
 **Record entries and IPv6**
 
@@ -157,8 +165,8 @@ enableIpv6: true
 
 By default, removing a hostname from `records` just makes Cuddns stop
 touching it — the record (and its last-known value) stays at the provider.
-Route53 and Cloudflare can opt into cleaning up after themselves instead, by
-setting `pruneRemovedRecords: true` on the provider:
+Route53, Cloudflare, and Mail-in-a-Box can opt into cleaning up after
+themselves instead, by setting `pruneRemovedRecords: true` on the provider:
 
 ```yaml
 providers:
@@ -168,16 +176,20 @@ providers:
     # ...
 ```
 
-When a record disappears from a zone's `records` list on a run where
-`pruneRemovedRecords` is on, Cuddns deletes it at the provider on the next run.
-This only works while the *zone* the record belonged to is still configured
+When a record disappears from a zone's `records` list (or, for MiaB, the
+provider's flat `records` list) on a run where `pruneRemovedRecords` is on,
+Cuddns deletes it at the provider on the next run. For Route53/Cloudflare
+this only works while the *zone* the record belonged to is still configured
 — if you remove the whole `zones` entry (or the whole provider block), Cuddns
 no longer has the credentials/zone mapping needed to reach it and just logs a
-warning instead of deleting anything; remove those manually if needed.
+warning instead of deleting anything; remove those manually if needed. MiaB
+has no separate zone concept, so the only way to hit that boundary there is
+removing the whole `miab` provider block.
 
-DuckDNS and No-IP don't expose `pruneRemovedRecords` at all — neither's update API
-can delete a record (DuckDNS's `clear=true` only blanks the IP; No-IP host
-removal is dashboard-only), so setting it there is a config error.
+DuckDNS and No-IP don't expose `pruneRemovedRecords` at all — neither's
+update API can delete a record this way (DuckDNS's `clear=true` only blanks
+the IP; No-IP host removal is dashboard-only), so setting it on either is a
+config error.
 
 **route53**
 - `accessKeyId` / `secretAccessKey` — AWS credentials; use `${VAR}`
@@ -214,6 +226,20 @@ removal is dashboard-only), so setting it there is a config error.
   update API — No-IP manages it (paid plans can change it from their
   dashboard). AAAA support depends on your No-IP plan/dashboard config.
 
+**miab** ([Mail-in-a-Box](https://mailinabox.email/))
+- `hostname` — your box's hostname (e.g. `box.example.com`); use a `${VAR}`
+  placeholder or a plain value.
+- `username` / `password` — credentials for any administrative user on the
+  box; use `${VAR}` placeholders.
+- `records` — one or more hostnames hosted on the box (or a subdomain of
+  one). TTL isn't configurable via the custom DNS API. Every update sends
+  the IP Cuddns resolved explicitly in the request body, rather than relying
+  on MiaB's own "use the caller's address" default — Cuddns itself may not be
+  running on the same host as the box.
+- `pruneRemovedRecords` — optional, defaults to `false`. See "Deleting removed
+  records" above. Deletes are scoped to the record's last-known value, so a
+  manually-added round-robin entry for the same hostname is left alone.
+
 ## Example `.env`
 
 ```dotenv
@@ -223,6 +249,9 @@ DUCKDNS_TOKEN=00000000-0000-0000-0000-000000000000
 CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
 NOIP_USERNAME=your-noip-username
 NOIP_PASSWORD=your-noip-password
+MIAB_HOSTNAME=box.example.com
+MIAB_USERNAME=admin@example.com
+MIAB_PASSWORD=your-miab-password
 ```
 
 Any `${VAR_NAME}` in `config.yaml` is resolved from this file first, then

@@ -11,10 +11,10 @@
 # the same hostname twice — once per suffix — to manage both A and AAAA for it.
 #
 # NOTE: removing a hostname from records just stops Cuddns from touching it — the
-# record stays at the provider. Route53 and Cloudflare can opt into cleaning up after
-# themselves with "pruneRemovedRecords: true" on the provider (see the commented example on
-# the route53 block below); DuckDNS/No-IP don't support this at all (their APIs have no
-# delete verb), so don't set it there.
+# record stays at the provider. Route53, Cloudflare, and MiaB can opt into cleaning up
+# after themselves with "pruneRemovedRecords: true" on the provider (see the commented
+# examples below); DuckDNS/No-IP don't support this at all (their APIs have no delete
+# verb), so don't set it there.
 
 intervalSeconds: 300
 
@@ -69,5 +69,13 @@ providers:
   - type: noip
     username: ${NOIP_USERNAME}
     password: ${NOIP_PASSWORD}
+    records:
+      - home.example.com
+
+  - type: miab
+    hostname: ${MIAB_HOSTNAME}
+    username: ${MIAB_USERNAME}
+    password: ${MIAB_PASSWORD}
+    # pruneRemovedRecords: true
     records:
       - home.example.com
