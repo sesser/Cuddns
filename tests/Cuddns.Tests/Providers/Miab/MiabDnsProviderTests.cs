@@ -236,7 +236,7 @@ public class MiabDnsProviderTests
         dnsRequest.Headers.Contains("x-auth-token").Should().BeFalse();
         dnsRequest.Headers.Authorization!.Scheme.Should().Be("Basic");
         var decodedCredentials = Encoding.UTF8.GetString(Convert.FromBase64String(dnsRequest.Headers.Authorization!.Parameter!));
-        decodedCredentials.Should().Be("session-api-key:");
+        decodedCredentials.Should().Be("admin@example.com:session-api-key");
     }
 
     [Fact]

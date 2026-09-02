@@ -14,6 +14,7 @@ public sealed class MiabDnsProvider : IDnsProvider, IDeletableDnsProvider
 
     private readonly HttpClient _httpClient;
     private readonly string _hostname;
+    private readonly string _username;
     private readonly AuthenticationHeaderValue _authHeader;
 
     // Set only when the admin account has 2FA turned on. MiaB's own TOTP setup uses
@@ -31,6 +32,7 @@ public sealed class MiabDnsProvider : IDnsProvider, IDeletableDnsProvider
     {
         _httpClient = httpClient;
         _hostname = config.Hostname!;
+        _username = config.Username!;
         var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{config.Username}:{config.Password}"));
         _authHeader = new AuthenticationHeaderValue("Basic", credentials);
         _totp = string.IsNullOrWhiteSpace(config.TotpSecret)
@@ -161,7 +163,13 @@ public sealed class MiabDnsProvider : IDnsProvider, IDeletableDnsProvider
                 $"MiaB login failed: '{Truncate(login?.Reason ?? login?.Status ?? rawBody)}'");
         }
 
-        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{login.ApiKey}:"));
+        // The session key goes in the password field, with the account's email as the
+        // username — not the other way around. MiaB's own docs show an api-key-as-username,
+        // blank-password example, but that's specifically the separate host-level API key
+        // (/var/lib/mailinabox/api.key); a per-login session key is validated by email
+        // first, session key second (auth.py: get_session(email, session_key, ...)), so
+        // sending it the other way is silently treated as a plain (invalid) login attempt.
+        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_username}:{login.ApiKey}"));
         return new AuthenticationHeaderValue("Basic", credentials);
     }
 
