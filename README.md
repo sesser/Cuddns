@@ -165,8 +165,8 @@ enableIpv6: true
 
 By default, removing a hostname from `records` just makes Cuddns stop
 touching it — the record (and its last-known value) stays at the provider.
-Route53 and Cloudflare can opt into cleaning up after themselves instead, by
-setting `pruneRemovedRecords: true` on the provider:
+Route53, Cloudflare, and Mail-in-a-Box can opt into cleaning up after
+themselves instead, by setting `pruneRemovedRecords: true` on the provider:
 
 ```yaml
 providers:
@@ -176,17 +176,19 @@ providers:
     # ...
 ```
 
-When a record disappears from a zone's `records` list on a run where
-`pruneRemovedRecords` is on, Cuddns deletes it at the provider on the next run.
-This only works while the *zone* the record belonged to is still configured
+When a record disappears from a zone's `records` list (or, for MiaB, the
+provider's flat `records` list) on a run where `pruneRemovedRecords` is on,
+Cuddns deletes it at the provider on the next run. For Route53/Cloudflare
+this only works while the *zone* the record belonged to is still configured
 — if you remove the whole `zones` entry (or the whole provider block), Cuddns
 no longer has the credentials/zone mapping needed to reach it and just logs a
-warning instead of deleting anything; remove those manually if needed.
+warning instead of deleting anything; remove those manually if needed. MiaB
+has no separate zone concept, so the only way to hit that boundary there is
+removing the whole `miab` provider block.
 
-DuckDNS, No-IP, and Mail-in-a-Box don't expose `pruneRemovedRecords` at all —
-none of their update APIs can delete a record this way (DuckDNS's `clear=true`
-only blanks the IP; No-IP host removal is dashboard-only; MiaB's `DELETE`
-verb exists but isn't wired up here yet), so setting it on any of them is a
+DuckDNS and No-IP don't expose `pruneRemovedRecords` at all — neither's
+update API can delete a record this way (DuckDNS's `clear=true` only blanks
+the IP; No-IP host removal is dashboard-only), so setting it on either is a
 config error.
 
 **route53**
@@ -234,6 +236,9 @@ config error.
   the IP Cuddns resolved explicitly in the request body, rather than relying
   on MiaB's own "use the caller's address" default — Cuddns itself may not be
   running on the same host as the box.
+- `pruneRemovedRecords` — optional, defaults to `false`. See "Deleting removed
+  records" above. Deletes are scoped to the record's last-known value, so a
+  manually-added round-robin entry for the same hostname is left alone.
 
 ## Example `.env`
 

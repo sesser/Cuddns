@@ -387,7 +387,7 @@ public class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public async Task Load_PruneRemovedRecords_BindsCorrectlyForRoute53AndCloudflare()
+    public async Task Load_PruneRemovedRecords_BindsCorrectlyForRoute53CloudflareAndMiab()
     {
         await File.WriteAllTextAsync(ConfigPath, """
             intervalSeconds: 60
@@ -409,12 +409,20 @@ public class ConfigLoaderTests : IDisposable
                     ttl: 1
                     records:
                       - b.example.com
+              - type: miab
+                hostname: box.example.com
+                username: admin@example.com
+                password: test-pass
+                pruneRemovedRecords: true
+                records:
+                  - c.example.com
             """);
 
         var options = CreateSut().Load(ConfigPath, envPath: null);
 
         options.Providers[0].Should().BeOfType<Route53ProviderConfig>().Subject.PruneRemovedRecords.Should().BeTrue();
         options.Providers[1].Should().BeOfType<CloudflareProviderConfig>().Subject.PruneRemovedRecords.Should().BeTrue();
+        options.Providers[2].Should().BeOfType<MiabProviderConfig>().Subject.PruneRemovedRecords.Should().BeTrue();
     }
 
     [Fact]

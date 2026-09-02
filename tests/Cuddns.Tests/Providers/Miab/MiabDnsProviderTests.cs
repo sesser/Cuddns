@@ -112,4 +112,63 @@ public class MiabDnsProviderTests
 
         (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage("*Invalid input.*");
     }
+
+    [Fact]
+    public void OwnsScope_MatchesConfiguredHostname()
+    {
+        var provider = new MiabDnsProvider(new HttpClient(), BuildConfig("home.example.com"));
+
+        provider.OwnsScope("box.example.com").Should().BeTrue();
+        provider.OwnsScope("other-box.example.com").Should().BeFalse();
+    }
+
+    [Fact]
+    public void GetScope_ReturnsConfiguredHostname()
+    {
+        var provider = new MiabDnsProvider(new HttpClient(), BuildConfig("home.example.com"));
+
+        provider.GetScope(provider.ManagedRecords[0]).Should().Be("box.example.com");
+    }
+
+    [Fact]
+    public async Task DeleteRecordAsync_SendsDeleteWithLastKnownIpAsBody()
+    {
+        var handler = new StubHandler((_, _) => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("OK") });
+        using var httpClient = new HttpClient(handler);
+        var provider = new MiabDnsProvider(httpClient, BuildConfig("home.example.com"));
+        var removedRecord = new ManagedRecord("gone.example.com", 0);
+
+        await provider.DeleteRecordAsync(removedRecord, "box.example.com", "203.0.113.10", CancellationToken.None);
+
+        handler.LastRequest.Should().NotBeNull();
+        handler.LastRequest!.Method.Should().Be(HttpMethod.Delete);
+        handler.LastRequest.RequestUri!.ToString().Should().Be("https://box.example.com/admin/dns/custom/gone.example.com/a");
+        handler.LastBody.Should().Be("203.0.113.10");
+    }
+
+    [Fact]
+    public async Task DeleteRecordAsync_AaaaRecord_UsesAaaaRtype()
+    {
+        var handler = new StubHandler((_, _) => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("OK") });
+        using var httpClient = new HttpClient(handler);
+        var provider = new MiabDnsProvider(httpClient, BuildConfig("home.example.com"));
+        var removedRecord = new ManagedRecord("gone.example.com", 0, RecordType.AAAA);
+
+        await provider.DeleteRecordAsync(removedRecord, "box.example.com", "2001:db8::1", CancellationToken.None);
+
+        handler.LastRequest!.RequestUri!.ToString().Should().Be("https://box.example.com/admin/dns/custom/gone.example.com/aaaa");
+    }
+
+    [Fact]
+    public async Task DeleteRecordAsync_ApiReturnsFailure_ThrowsWithErrorMessage()
+    {
+        using var httpClient = new HttpClient(new StubHandler((_, _) =>
+            new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("boom") }));
+        var provider = new MiabDnsProvider(httpClient, BuildConfig("home.example.com"));
+        var removedRecord = new ManagedRecord("gone.example.com", 0);
+
+        var act = () => provider.DeleteRecordAsync(removedRecord, "box.example.com", "203.0.113.10", CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage("*boom*");
+    }
 }

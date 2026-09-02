@@ -3,7 +3,7 @@ using System.Text;
 
 namespace Cuddns.Providers.Miab;
 
-public sealed class MiabDnsProvider : IDnsProvider
+public sealed class MiabDnsProvider : IDnsProvider, IDeletableDnsProvider
 {
     // MiaB's custom DNS API doesn't expose a TTL knob; this is informational only, same as
     // DuckDNS/No-IP.
@@ -19,6 +19,7 @@ public sealed class MiabDnsProvider : IDnsProvider
         _hostname = config.Hostname!;
         var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{config.Username}:{config.Password}"));
         _authHeader = new AuthenticationHeaderValue("Basic", credentials);
+        PruneRemovedRecords = config.PruneRemovedRecords;
         ManagedRecords = config.Records.Select(record =>
         {
             var (name, type) = RecordSpec.Parse(record);
@@ -30,17 +31,34 @@ public sealed class MiabDnsProvider : IDnsProvider
 
     public IReadOnlyList<ManagedRecord> ManagedRecords { get; }
 
-    public async Task UpsertRecordAsync(ManagedRecord record, string ip, CancellationToken cancellationToken)
+    public bool PruneRemovedRecords { get; }
+
+    public Task UpsertRecordAsync(ManagedRecord record, string ip, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Put, record, ip, cancellationToken);
+
+    // A single MiaB provider instance manages one box — there's no per-record zone to scope
+    // to like Route53/Cloudflare, so the box's own hostname doubles as the (only) scope value.
+    public string GetScope(ManagedRecord record) => _hostname;
+
+    public bool OwnsScope(string scope) => scope == _hostname;
+
+    public Task DeleteRecordAsync(ManagedRecord record, string scope, string lastKnownIp, CancellationToken cancellationToken) =>
+        // Scoping the delete to lastKnownIp (rather than an empty body, which deletes every
+        // record for this qname/rtype) leaves alone any other value manually added for the
+        // same hostname, e.g. a round-robin entry Cuddns doesn't manage.
+        SendAsync(HttpMethod.Delete, record, lastKnownIp, cancellationToken);
+
+    private async Task SendAsync(HttpMethod method, ManagedRecord record, string value, CancellationToken cancellationToken)
     {
         var rtype = record.Type == RecordType.AAAA ? "aaaa" : "a";
         var url = $"https://{_hostname}/admin/dns/custom/{Uri.EscapeDataString(record.Name)}/{rtype}";
 
-        using var request = new HttpRequestMessage(HttpMethod.Put, url)
+        using var request = new HttpRequestMessage(method, url)
         {
             // The API defaults A/AAAA to the caller's own remote address when the request
-            // body is empty — send the IP Cuddns resolved explicitly instead, since the box
-            // isn't necessarily what sees the same public address Cuddns did.
-            Content = new StringContent(ip),
+            // body is empty — send the value explicitly instead, since the box isn't
+            // necessarily what sees the same public address Cuddns did.
+            Content = new StringContent(value),
         };
         request.Headers.Authorization = _authHeader;
 
@@ -49,7 +67,8 @@ public sealed class MiabDnsProvider : IDnsProvider
 
         if (!response.IsSuccessStatusCode || !result.Equals("OK", StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"MiaB update for {record.Name} failed: '{Truncate(result)}'");
+            var action = method == HttpMethod.Delete ? "delete" : "update";
+            throw new InvalidOperationException($"MiaB {action} for {record.Name} failed: '{Truncate(result)}'");
         }
     }
 

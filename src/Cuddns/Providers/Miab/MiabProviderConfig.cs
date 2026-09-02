@@ -15,6 +15,12 @@ public sealed class MiabProviderConfig : IProviderConfig
 
     public List<string> Records { get; set; } = [];
 
+    /// <summary>
+    /// When true, a record that disappears from a still-configured box's <c>records</c>
+    /// list is deleted from MiaB too, instead of just being left alone.
+    /// </summary>
+    public bool PruneRemovedRecords { get; set; }
+
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(Hostname) || !HostnameValidator.IsValid(Hostname))
