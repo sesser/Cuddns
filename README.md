@@ -191,6 +191,19 @@ update API can delete a record this way (DuckDNS's `clear=true` only blanks
 the IP; No-IP host removal is dashboard-only), so setting it on either is a
 config error.
 
+To prune the *last* record in a zone (or, for MiaB, the last record on the
+whole provider block), leave the zone/provider block in place with an empty
+`records: []` rather than deleting the block itself — an empty list is
+valid. Removing the block entirely hits the boundary above instead: Cuddns
+loses the credentials/scope needed to reach that record at all, so it's left
+stale rather than pruned.
+
+If every provider ends up with zero records this way (e.g. you've
+temporarily stopped managing anything but want to keep the container
+running), Cuddns skips the public IP lookup entirely for that run instead
+of spending a network call for no reason — it still runs on schedule and
+picks records back up as soon as any are configured again.
+
 **route53**
 - `accessKeyId` / `secretAccessKey` — AWS credentials; use `${VAR}`
   placeholders, never commit real values.

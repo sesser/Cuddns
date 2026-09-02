@@ -47,11 +47,9 @@ public sealed class MiabProviderConfig : IProviderConfig
             throw new ConfigValidationException("MiaB provider requires a password to be configured.");
         }
 
-        if (Records.Count == 0)
-        {
-            throw new ConfigValidationException("MiaB provider must configure at least one record.");
-        }
-
+        // An empty records list is valid — it's the only way to prune the last record via
+        // pruneRemovedRecords, since the provider block (and thus its credentials) has to
+        // stay configured for Cuddns to reach it at all.
         if (!string.IsNullOrWhiteSpace(TotpSecret))
         {
             try

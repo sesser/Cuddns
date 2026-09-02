@@ -62,14 +62,17 @@ public class MiabProviderConfigTests
     }
 
     [Fact]
-    public void Validate_NoRecords_Throws()
+    public void Validate_NoRecords_DoesNotThrow()
     {
+        // An empty records list has to stay valid — it's the only way to prune the very
+        // last record via pruneRemovedRecords, since the provider block itself must remain
+        // configured for Cuddns to still own the scope needed to reach it.
         var config = BuildConfig();
         config.Records = [];
 
         var act = () => config.Validate();
 
-        act.Should().Throw<ConfigValidationException>().WithMessage("*record*");
+        act.Should().NotThrow();
     }
 
     [Fact]

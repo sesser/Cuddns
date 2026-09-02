@@ -49,11 +49,9 @@ public sealed class Route53ProviderConfig : IProviderConfig
                 throw new ConfigValidationException($"{zonePath}.ttl must be greater than 0.");
             }
 
-            if (zone.Records.Count == 0)
-            {
-                throw new ConfigValidationException($"{zonePath}.records must contain at least one record.");
-            }
-
+            // An empty records list is valid — it's the only way to prune the last record in
+            // a zone via pruneRemovedRecords, since the zone (and thus its scope/credentials)
+            // has to stay configured for Cuddns to reach it at all.
             for (var recordIndex = 0; recordIndex < zone.Records.Count; recordIndex++)
             {
                 var record = zone.Records[recordIndex];

@@ -448,6 +448,46 @@ public class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
+    public async Task Load_EmptyRecordsListOnZoneOrProviderBlock_DoesNotThrow()
+    {
+        // Pruning the very last record with pruneRemovedRecords requires being able to
+        // express "this zone/box is still configured, it just has zero records right now" —
+        // otherwise there'd be no way to prune a lone record without also losing the
+        // credentials/scope needed to reach it.
+        await File.WriteAllTextAsync(ConfigPath, """
+            intervalSeconds: 60
+            providers:
+              - type: route53
+                accessKeyId: unused
+                secretAccessKey: unused
+                pruneRemovedRecords: true
+                zones:
+                  - hostedZoneId: Z123
+                    ttl: 300
+                    records: []
+              - type: cloudflare
+                apiToken: unused
+                pruneRemovedRecords: true
+                zones:
+                  - zoneId: abc123
+                    ttl: 1
+                    records: []
+              - type: miab
+                hostname: box.example.com
+                username: admin@example.com
+                password: test-pass
+                pruneRemovedRecords: true
+                records: []
+            """);
+
+        var options = CreateSut().Load(ConfigPath, envPath: null);
+
+        options.Providers[0].Should().BeOfType<Route53ProviderConfig>().Subject.Zones[0].Records.Should().BeEmpty();
+        options.Providers[1].Should().BeOfType<CloudflareProviderConfig>().Subject.Zones[0].Records.Should().BeEmpty();
+        options.Providers[2].Should().BeOfType<MiabProviderConfig>().Subject.Records.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Load_PruneRemovedRecordsOnDuckDns_ThrowsSinceDuckDnsCannotDeleteRecords()
     {
         await File.WriteAllTextAsync(ConfigPath, """
