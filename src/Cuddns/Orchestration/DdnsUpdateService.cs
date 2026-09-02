@@ -13,11 +13,22 @@ public sealed class DdnsUpdateService(
 {
     public async Task RunOnceAsync(CancellationToken cancellationToken)
     {
-        var currentIps = await publicIpResolver.GetCurrentIpsAsync(cancellationToken);
         var cache = await cacheStore.LoadAsync(cancellationToken);
         var updated = new Dictionary<string, IpCacheEntry>(cache);
 
         await ReconcileRemovedRecordsAsync(cache, updated, cancellationToken);
+
+        if (dnsProviders.Sum(p => p.ManagedRecords.Count) == 0)
+        {
+            // Nothing to resolve an IP for — e.g. every provider was intentionally emptied
+            // out to (temporarily) stop managing anything. Skip the public IP lookup
+            // entirely rather than spending a network call on every run for no reason.
+            logger.LogInformation("No records configured across any provider; skipping the public IP lookup this run.");
+            await cacheStore.SaveAsync(updated, cancellationToken);
+            return;
+        }
+
+        var currentIps = await publicIpResolver.GetCurrentIpsAsync(cancellationToken);
 
         foreach (var provider in dnsProviders)
         {

@@ -128,6 +128,18 @@ public class DdnsUpdateServiceTests
     }
 
     [Fact]
+    public async Task NoManagedRecordsAcrossAnyProvider_SkipsPublicIpLookupButStillSavesCache()
+    {
+        SetupCache([]);
+        SetupManagedRecords(); // no records at all — e.g. every provider was emptied out
+
+        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
+
+        _publicIp.Verify(p => p.GetCurrentIpsAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _cacheStore.Verify(c => c.SaveAsync(It.IsAny<IReadOnlyDictionary<string, IpCacheEntry>>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task AaaaRecord_UsesIPv6AndDistinctCacheKeyFromARecordWithSameName()
     {
         SetupCache([]);

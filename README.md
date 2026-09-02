@@ -198,6 +198,12 @@ valid. Removing the block entirely hits the boundary above instead: Cuddns
 loses the credentials/scope needed to reach that record at all, so it's left
 stale rather than pruned.
 
+If every provider ends up with zero records this way (e.g. you've
+temporarily stopped managing anything but want to keep the container
+running), Cuddns skips the public IP lookup entirely for that run instead
+of spending a network call for no reason — it still runs on schedule and
+picks records back up as soon as any are configured again.
+
 **route53**
 - `accessKeyId` / `secretAccessKey` — AWS credentials; use `${VAR}`
   placeholders, never commit real values.
