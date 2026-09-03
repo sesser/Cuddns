@@ -3,7 +3,7 @@ using Amazon.Route53.Model;
 
 namespace Cuddns.Providers.Route53;
 
-public sealed class Route53DnsProvider : IDnsProvider, IDeletableDnsProvider
+public sealed class Route53DnsProvider : IDnsProvider, IDeletableDnsProvider, IDisposable
 {
     private readonly IAmazonRoute53 _client;
     private readonly Route53ProviderConfig _config;
@@ -96,4 +96,6 @@ public sealed class Route53DnsProvider : IDnsProvider, IDeletableDnsProvider
 
         await _client.ChangeResourceRecordSetsAsync(request, cancellationToken);
     }
+
+    public void Dispose() => _client.Dispose();
 }
