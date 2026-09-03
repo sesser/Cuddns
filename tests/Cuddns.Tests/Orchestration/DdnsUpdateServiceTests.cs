@@ -23,14 +23,9 @@ public class DdnsUpdateServiceTests
             .ReturnsAsync(new PublicIpResult(CurrentIp, CurrentIpv6));
     }
 
-    private DdnsUpdateService CreateSut(params IDnsProvider[] providers)
-    {
-        return new DdnsUpdateService(
-            _publicIp.Object,
-            _cacheStore.Object,
-            providers,
-            NullLogger<DdnsUpdateService>.Instance);
-    }
+    private Task RunOnce(params IDnsProvider[] providers) =>
+        new DdnsUpdateService(_cacheStore.Object, NullLogger<DdnsUpdateService>.Instance)
+            .RunOnceAsync(providers, _publicIp.Object, CancellationToken.None);
 
     private void SetupManagedRecords(params string[] records)
     {
@@ -50,7 +45,7 @@ public class DdnsUpdateServiceTests
         SetupCache([]);
         SetupManagedRecords("a.example.com");
 
-        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(_dnsProvider.Object);
 
         _dnsProvider.Verify(p => p.UpsertRecordAsync(
             It.Is<ManagedRecord>(r => r.Name == "a.example.com"), CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
@@ -70,7 +65,7 @@ public class DdnsUpdateServiceTests
         });
         SetupManagedRecords("a.example.com");
 
-        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(_dnsProvider.Object);
 
         _dnsProvider.Verify(p => p.UpsertRecordAsync(
             It.IsAny<ManagedRecord>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -85,7 +80,7 @@ public class DdnsUpdateServiceTests
         });
         SetupManagedRecords("a.example.com");
 
-        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(_dnsProvider.Object);
 
         _dnsProvider.Verify(p => p.UpsertRecordAsync(
             It.Is<ManagedRecord>(r => r.Name == "a.example.com"), CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
@@ -105,7 +100,7 @@ public class DdnsUpdateServiceTests
                 It.Is<ManagedRecord>(r => r.Name == "fails.example.com"), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("boom"));
 
-        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(_dnsProvider.Object);
 
         _dnsProvider.Verify(p => p.UpsertRecordAsync(
             It.Is<ManagedRecord>(r => r.Name == "ok.example.com"), CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
@@ -122,7 +117,7 @@ public class DdnsUpdateServiceTests
         SetupCache([]);
         SetupManagedRecords("a.example.com", "b.example.com", "c.example.com");
 
-        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(_dnsProvider.Object);
 
         _publicIp.Verify(p => p.GetCurrentIpsAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -133,7 +128,7 @@ public class DdnsUpdateServiceTests
         SetupCache([]);
         SetupManagedRecords(); // no records at all — e.g. every provider was emptied out
 
-        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(_dnsProvider.Object);
 
         _publicIp.Verify(p => p.GetCurrentIpsAsync(It.IsAny<CancellationToken>()), Times.Never);
         _cacheStore.Verify(c => c.SaveAsync(It.IsAny<IReadOnlyDictionary<string, IpCacheEntry>>(), It.IsAny<CancellationToken>()), Times.Once);
@@ -149,7 +144,7 @@ public class DdnsUpdateServiceTests
             new ManagedRecord("dual.example.com", 300, RecordType.AAAA),
         ]);
 
-        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(_dnsProvider.Object);
 
         _dnsProvider.Verify(p => p.UpsertRecordAsync(
             It.Is<ManagedRecord>(r => r.Name == "dual.example.com" && r.Type == RecordType.A),
@@ -176,7 +171,7 @@ public class DdnsUpdateServiceTests
             new ManagedRecord("v6only.example.com", 300, RecordType.AAAA),
         ]);
 
-        await CreateSut(_dnsProvider.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(_dnsProvider.Object);
 
         _dnsProvider.Verify(p => p.UpsertRecordAsync(
             It.IsAny<ManagedRecord>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -193,7 +188,7 @@ public class DdnsUpdateServiceTests
         var second = new Mock<IDnsProvider>();
         second.Setup(p => p.ManagedRecords).Returns([new ManagedRecord("b.example.com", 300)]);
 
-        await CreateSut(first.Object, second.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(first.Object, second.Object);
 
         first.Verify(p => p.UpsertRecordAsync(
             It.Is<ManagedRecord>(r => r.Name == "a.example.com"), CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
@@ -226,7 +221,7 @@ public class DdnsUpdateServiceTests
         var provider = CreateDeletableProvider(
             "route53", pruneRemovedRecords: true, ownedScope: "Z1", new ManagedRecord("still.example.com", 300));
 
-        await CreateSut(provider.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(provider.Object);
 
         provider.Verify(p => p.DeleteRecordAsync(
             It.Is<ManagedRecord>(r => r.Name == "gone.example.com"), "Z1", CurrentIp, It.IsAny<CancellationToken>()), Times.Once);
@@ -247,7 +242,7 @@ public class DdnsUpdateServiceTests
         var provider = CreateDeletableProvider(
             "route53", pruneRemovedRecords: false, ownedScope: "Z1", new ManagedRecord("still.example.com", 300));
 
-        await CreateSut(provider.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(provider.Object);
 
         provider.Verify(p => p.DeleteRecordAsync(
             It.IsAny<ManagedRecord>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -271,7 +266,7 @@ public class DdnsUpdateServiceTests
                 It.IsAny<ManagedRecord>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("boom"));
 
-        await CreateSut(provider.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(provider.Object);
 
         _cacheStore.Verify(c => c.SaveAsync(
             It.Is<IReadOnlyDictionary<string, IpCacheEntry>>(d =>
@@ -292,7 +287,7 @@ public class DdnsUpdateServiceTests
         var stillAround = CreateDeletableProvider(
             "route53", pruneRemovedRecords: true, ownedScope: "Z2", new ManagedRecord("still.example.com", 300));
 
-        await CreateSut(stillAround.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(stillAround.Object);
 
         stillAround.Verify(p => p.DeleteRecordAsync(
             It.IsAny<ManagedRecord>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -310,7 +305,7 @@ public class DdnsUpdateServiceTests
             ["gone.example.com"] = new IpCacheEntry(CurrentIp, DateTimeOffset.UtcNow.AddHours(-1), "route53", "Z1"),
         });
 
-        await CreateSut().RunOnceAsync(CancellationToken.None);
+        await RunOnce();
 
         _cacheStore.Verify(c => c.SaveAsync(
             It.Is<IReadOnlyDictionary<string, IpCacheEntry>>(d => d.ContainsKey("gone.example.com")),
@@ -325,7 +320,7 @@ public class DdnsUpdateServiceTests
             "route53", pruneRemovedRecords: false, ownedScope: "Z1", new ManagedRecord("a.example.com", 300));
         provider.Setup(p => p.GetScope(It.IsAny<ManagedRecord>())).Returns("Z1");
 
-        await CreateSut(provider.Object).RunOnceAsync(CancellationToken.None);
+        await RunOnce(provider.Object);
 
         _cacheStore.Verify(c => c.SaveAsync(
             It.Is<IReadOnlyDictionary<string, IpCacheEntry>>(d =>

@@ -5,18 +5,17 @@ using Microsoft.Extensions.Logging;
 
 namespace Cuddns.Orchestration;
 
-public sealed class DdnsUpdateService(
-    IPublicIpResolver publicIpResolver,
-    IIpCacheStore cacheStore,
-    IReadOnlyList<IDnsProvider> dnsProviders,
-    ILogger<DdnsUpdateService> logger)
+public sealed class DdnsUpdateService(IIpCacheStore cacheStore, ILogger<DdnsUpdateService> logger)
 {
-    public async Task RunOnceAsync(CancellationToken cancellationToken)
+    public async Task RunOnceAsync(
+        IReadOnlyList<IDnsProvider> dnsProviders,
+        IPublicIpResolver publicIpResolver,
+        CancellationToken cancellationToken)
     {
         var cache = await cacheStore.LoadAsync(cancellationToken);
         var updated = new Dictionary<string, IpCacheEntry>(cache);
 
-        await ReconcileRemovedRecordsAsync(cache, updated, cancellationToken);
+        await ReconcileRemovedRecordsAsync(dnsProviders, cache, updated, cancellationToken);
 
         if (dnsProviders.Sum(p => p.ManagedRecords.Count) == 0)
         {
@@ -80,6 +79,7 @@ public sealed class DdnsUpdateService(
     /// deletion contract and its boundaries.
     /// </summary>
     private async Task ReconcileRemovedRecordsAsync(
+        IReadOnlyList<IDnsProvider> dnsProviders,
         IReadOnlyDictionary<string, IpCacheEntry> cache,
         Dictionary<string, IpCacheEntry> updated,
         CancellationToken cancellationToken)

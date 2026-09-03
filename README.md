@@ -303,6 +303,22 @@ docker run --rm -v cuddns-data:/data alpine chown -R 1000:1000 /data
 
 (swap `cuddns-data` for your actual volume/mount).
 
+## Live config reload
+
+Cuddns checks `config.yaml` and `.env` for changes roughly every 15 seconds — no
+restart needed to pick up an edit. Editing either file triggers a reload:
+
+- A valid change is validated and swapped in immediately; the log shows what was
+  detected and that the reload succeeded.
+- An invalid change (bad YAML, a missing required field, a `${VAR}` with no
+  matching entry in `.env` or the environment) is rejected — Cuddns logs the
+  specific problem and keeps running on the last-known-good config until a valid
+  edit shows up.
+
+This uses simple polling rather than OS-level file-change notifications, since
+those are unreliable across Docker Desktop bind mounts (the common way `/config`
+gets mounted on macOS/Windows).
+
 ## Development
 
 ```bash

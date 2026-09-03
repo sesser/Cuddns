@@ -37,13 +37,8 @@ IDnsProviderFactory[] catalog =
 ];
 startupLogger.LogInformation("Available provider types: {ProviderTypes}", string.Join(", ", catalog.Select(f => f.ProviderType)));
 
-var cuddnsOptions = new ConfigLoader(catalog).Load(configPath, envPath);
-startupLogger.LogInformation("Configured providers: {ConfiguredTypes}", string.Join(", ", cuddnsOptions.Providers.Select(p => p.Type)));
-
 var catalogByType = catalog.ToDictionary(f => f.ProviderType);
-var dnsProviders = cuddnsOptions.Providers
-    .Select(providerConfig => catalogByType[providerConfig.Type].Create(providerConfig))
-    .ToList();
+var configLoader = new ConfigLoader(catalog);
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -51,8 +46,6 @@ var builder = Host.CreateApplicationBuilder(args);
 // format with no timestamp) with a single-line, timestamped one.
 builder.Logging.ClearProviders();
 ConfigureConsoleLogging(builder.Logging);
-
-builder.Services.AddSingleton(cuddnsOptions);
 
 builder.Services.AddHttpClient<IfConfigNetPublicIpSource>(client =>
 {
@@ -65,33 +58,45 @@ builder.Services.AddHttpClient<IpifyPublicIpSource>(client => client.Timeout = T
 builder.Services.AddHttpClient<IcanhazipPublicIpSource>(client => client.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddHttpClient<IdentMePublicIpSource>(client => client.Timeout = TimeSpan.FromSeconds(10));
 
-builder.Services.AddSingleton<IPublicIpResolver>(sp =>
-{
-    var sourceCatalog = new Dictionary<string, IPublicIpSource>
+builder.Services.AddSingleton<IIpCacheStore>(sp =>
+    new JsonFileIpCacheStore(cachePath, sp.GetRequiredService<ILogger<JsonFileIpCacheStore>>()));
+
+// Builds a ConfigSnapshot (options + providers + resolver) from config.yaml/.env — used both
+// for the initial load below and by ConfigWatcherService on every hot-reload attempt, so a
+// reload behaves identically to a fresh start.
+builder.Services.AddSingleton(sp => new ConfigSnapshotBuilder(
+    configLoader,
+    catalogByType,
+    new Dictionary<string, IPublicIpSource>
     {
         [PublicIpSourceNames.IfConfig] = sp.GetRequiredService<IfConfigNetPublicIpSource>(),
         [PublicIpSourceNames.Ipify] = sp.GetRequiredService<IpifyPublicIpSource>(),
         [PublicIpSourceNames.Icanhazip] = sp.GetRequiredService<IcanhazipPublicIpSource>(),
         [PublicIpSourceNames.IdentMe] = sp.GetRequiredService<IdentMePublicIpSource>(),
-    };
-    var sourceNames = cuddnsOptions.PublicIpSources is { Count: > 0 }
-        ? cuddnsOptions.PublicIpSources
-        : PublicIpSourceNames.All;
-    var sources = sourceNames.Select(name => sourceCatalog[name]).ToList();
-    return new PublicIpResolver(sources, cuddnsOptions.EnableIpv6, sp.GetRequiredService<ILogger<PublicIpResolver>>());
-});
+    },
+    sp.GetRequiredService<ILogger<PublicIpResolver>>()));
 
-builder.Services.AddSingleton<IIpCacheStore>(sp =>
-    new JsonFileIpCacheStore(cachePath, sp.GetRequiredService<ILogger<JsonFileIpCacheStore>>()));
-
-builder.Services.AddSingleton<IReadOnlyList<IDnsProvider>>(dnsProviders);
+// Loads config.yaml/.env now — same fail-fast timing as before this feature existed: an
+// invalid config throws here, before the host starts anything.
+builder.Services.AddSingleton(sp =>
+    new ConfigState(sp.GetRequiredService<ConfigSnapshotBuilder>().Build(configPath, envPath)));
 
 builder.Services.AddSingleton<DdnsUpdateService>();
 builder.Services.AddHostedService<DdnsWorker>();
+builder.Services.AddHostedService(sp => new ConfigWatcherService(
+    sp.GetRequiredService<ConfigSnapshotBuilder>(),
+    sp.GetRequiredService<ConfigState>(),
+    configPath,
+    envPath,
+    sp.GetRequiredService<ILogger<ConfigWatcherService>>()));
 
 var host = builder.Build();
-host.Services.GetRequiredService<ILogger<Program>>()
-    .LogInformation("Cuddns {Version} starting", AppVersion.Current);
+
+var initialOptions = host.Services.GetRequiredService<ConfigState>().Current.Options;
+host.Services.GetRequiredService<ILogger<Program>>().LogInformation(
+    "Cuddns {Version} starting (providers: {ConfiguredTypes})",
+    AppVersion.Current, string.Join(", ", initialOptions.Providers.Select(p => p.Type)));
+
 host.Run();
 
 static void ConfigureConsoleLogging(ILoggingBuilder logging)
